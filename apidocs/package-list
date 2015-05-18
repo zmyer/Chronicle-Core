@@ -1,4 +1,5 @@
 net.openhft.chronicle.core
+net.openhft.chronicle.core.annotation
 net.openhft.chronicle.core.pool
 net.openhft.chronicle.core.util
 net.openhft.chronicle.core.values

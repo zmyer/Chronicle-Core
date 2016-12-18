@@ -16,6 +16,7 @@
 
 package net.openhft.chronicle.core;
 
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sun.nio.ch.FileChannelImpl;
@@ -81,6 +82,26 @@ public enum OS {
         }
         return TMP + "/target";
     }
+
+    public static String findDir(String suffix) throws FileNotFoundException {
+        for (String s : System.getProperty("java.class.path").split(":")) {
+            if (s.endsWith(suffix) && new File(s).isDirectory())
+                return s;
+        }
+        throw new FileNotFoundException(suffix);
+    }
+
+    @NotNull
+    public static File findFile(String... path) {
+        File dir = new File(".").getAbsoluteFile();
+        for (int i = 0; i < path.length - 1; i++) {
+            File dir2 = new File(dir, path[i]);
+            if (dir2.isDirectory())
+                dir = dir2;
+        }
+        return new File(dir, path[path.length - 1]);
+    }
+
 
     public static String getHostName() {
         return HOST_NAME;
@@ -289,7 +310,19 @@ public enum OS {
             throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, IllegalArgumentException {
         Method map0 = fileChannel.getClass().getDeclaredMethod("map0", int.class, long.class, long.class);
         map0.setAccessible(true);
-        final long invoke = (Long) map0.invoke(fileChannel, imode, start, size);
+        final long invoke;
+        try {
+            try {
+                invoke = (Long) map0.invoke(fileChannel, imode, start, size);
+            } catch (InvocationTargetException e) {
+                throw Jvm.rethrow(e.getCause());
+            }
+        } catch (OutOfMemoryError oome) {
+            if (oome.getMessage().startsWith("Map failed") && !is64Bit()) {
+                throw new OutOfMemoryError("Ran out of virtual memory on a 32-bit JVM, either use a 64-bit JVM or *reduce* your heap size");
+            }
+            throw oome;
+        }
         memoryMapped.addAndGet(size);
         return invoke;
     }

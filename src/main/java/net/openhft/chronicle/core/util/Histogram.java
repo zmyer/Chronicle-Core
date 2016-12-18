@@ -16,6 +16,7 @@
 
 package net.openhft.chronicle.core.util;
 
+import java.util.Arrays;
 import java.util.function.DoubleFunction;
 
 /**
@@ -23,21 +24,93 @@ import java.util.function.DoubleFunction;
  */
 // TODO add a dummy histogram.
 public class Histogram implements NanoSampler {
-    private final int fractionBits;
+    private int fractionBits;
     private int powersOf2;
-    private long totalCount, overRange;
-    private int[] sampleCount;
+    private long overRange;
+    private long totalCount;
     private long floor;
+    private int[] sampleCount;
 
     public Histogram() {
         this(42, 4);
     }
 
     public Histogram(int powersOf2, int fractionBits) {
+        this(powersOf2, fractionBits, 1.0);
+    }
+
+    public Histogram(int powersOf2, int fractionBits, double minValue) {
         this.powersOf2 = powersOf2;
         this.fractionBits = fractionBits;
         sampleCount = new int[powersOf2 << fractionBits];
-        floor = Double.doubleToRawLongBits(1) >> (52 - fractionBits);
+        floor = Double.doubleToRawLongBits(minValue) >> (52 - fractionBits);
+    }
+
+    /**
+     * @return Histogram for use with System.nanoTime() up to 4 second delay.
+     */
+    public static Histogram timeMicros() {
+        return new Histogram(22 /* 4 seconds */, 3 /* 2 decimal places */, 1000.0 /* nano-seconds */);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof Histogram))
+            return false;
+        Histogram h = (Histogram) obj;
+        if (!(powersOf2 == h.powersOf2
+                && fractionBits == h.fractionBits
+                && floor == h.floor))
+            return false;
+        int size = powersOf2 << fractionBits;
+        for (int i = 0; i < size; i++) {
+            if (sampleCount[i] != h.sampleCount[i])
+                return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String toString() {
+        return "Histogram{" +
+                "fractionBits=" + fractionBits +
+                ", powersOf2=" + powersOf2 +
+                ", overRange=" + overRange +
+                ", totalCount=" + totalCount +
+                ", floor=" + floor +
+                ", sampleCount=" + Arrays.toString(sampleCount) +
+                '}';
+    }
+
+    /**
+     * Re initialise this histogram from deserialized data
+     */
+    public void init(int powersOf2, int fractionBits, long overRange, long totalCount, long floor) {
+        this.powersOf2 = powersOf2;
+        this.fractionBits = fractionBits;
+        this.overRange = overRange;
+        this.totalCount = totalCount;
+        this.floor = floor;
+
+        int minSampleCountLength = powersOf2 << fractionBits;
+        if (sampleCount.length < minSampleCountLength)
+            sampleCount = new int[minSampleCountLength];
+    }
+
+    public int fractionBits() {
+        return fractionBits;
+    }
+
+    public int powersOf2() {
+        return powersOf2;
+    }
+
+    public long overRange() {
+        return overRange;
+    }
+
+    public int[] sampleCount() {
+        return sampleCount;
     }
 
     public void add(Histogram h) {
@@ -74,7 +147,7 @@ public class Histogram implements NanoSampler {
         return 1;
     }
 
-    public double[] getPercentiles(){
+    public double[] getPercentiles() {
         if (totalCount < 1_000_000) {
             return new double[]{
                     percentile(0.5),
@@ -147,43 +220,43 @@ public class Histogram implements NanoSampler {
 
     public String toLongMicrosFormat(DoubleFunction<Double> toMicros) {
         if (totalCount < 1_000_000)
-            return "50/90 93/99 99.3/99.9 99.93/99.99 - worst was " +
+            return "50/90 97/99 99.7/99.9 99.97/99.99 - worst was " +
                     p(toMicros.apply(percentile(0.5))) + " / " +
                     p(toMicros.apply(percentile(0.9))) + "  " +
-                    p(toMicros.apply(percentile(0.93))) + " / " +
+                    p(toMicros.apply(percentile(0.97))) + " / " +
                     p(toMicros.apply(percentile(0.99))) + "  " +
-                    p(toMicros.apply(percentile(0.993))) + " / " +
+                    p(toMicros.apply(percentile(0.997))) + " / " +
                     p(toMicros.apply(percentile(0.999))) + "  " +
-                    p(toMicros.apply(percentile(0.9993))) + " / " +
+                    p(toMicros.apply(percentile(0.9997))) + " / " +
                     p(toMicros.apply(percentile(0.9999))) + " - " +
                     p(toMicros.apply(percentile(1)));
 
         if (totalCount < 10_000_000)
-            return "50/90 93/99 99.3/99.9 99.93/99.99 99.993/99.999 - worst was " +
+            return "50/90 97/99 99.7/99.9 99.97/99.99 99.997/99.999 - worst was " +
                     p(toMicros.apply(percentile(0.5))) + " / " +
                     p(toMicros.apply(percentile(0.9))) + "  " +
-                    p(toMicros.apply(percentile(0.93))) + " / " +
+                    p(toMicros.apply(percentile(0.97))) + " / " +
                     p(toMicros.apply(percentile(0.99))) + "  " +
-                    p(toMicros.apply(percentile(0.993))) + " / " +
+                    p(toMicros.apply(percentile(0.997))) + " / " +
                     p(toMicros.apply(percentile(0.999))) + "  " +
-                    p(toMicros.apply(percentile(0.9993))) + " / " +
+                    p(toMicros.apply(percentile(0.9997))) + " / " +
                     p(toMicros.apply(percentile(0.9999))) + "  " +
-                    p(toMicros.apply(percentile(0.99993))) + " / " +
+                    p(toMicros.apply(percentile(0.99997))) + " / " +
                     p(toMicros.apply(percentile(0.99999))) + " - " +
                     p(toMicros.apply(percentile(1)));
 
-        return "50/90 93/99 99.3/99.9 99.93/99.99 99.993/99.999 99.9993/99.9999 - worst was " +
+        return "50/90 97/99 99.7/99.9 99.97/99.99 99.997/99.999 99.9997/99.9999 - worst was " +
                 p(toMicros.apply(percentile(0.5))) + " / " +
                 p(toMicros.apply(percentile(0.9))) + "  " +
-                p(toMicros.apply(percentile(0.93))) + " / " +
+                p(toMicros.apply(percentile(0.97))) + " / " +
                 p(toMicros.apply(percentile(0.99))) + "  " +
-                p(toMicros.apply(percentile(0.993))) + " / " +
+                p(toMicros.apply(percentile(0.997))) + " / " +
                 p(toMicros.apply(percentile(0.999))) + "  " +
-                p(toMicros.apply(percentile(0.9993))) + " / " +
+                p(toMicros.apply(percentile(0.9997))) + " / " +
                 p(toMicros.apply(percentile(0.9999))) + "  " +
-                p(toMicros.apply(percentile(0.99993))) + " / " +
+                p(toMicros.apply(percentile(0.99997))) + " / " +
                 p(toMicros.apply(percentile(0.99999))) + "  " +
-                p(toMicros.apply(percentile(0.999993))) + " / " +
+                p(toMicros.apply(percentile(0.999997))) + " / " +
                 p(toMicros.apply(percentile(0.999999))) + " - " +
                 p(toMicros.apply(percentile(1)));
     }
@@ -200,9 +273,14 @@ public class Histogram implements NanoSampler {
         return totalCount;
     }
 
-    public void reset(){
-        sampleCount = new int[powersOf2 << fractionBits];
+    public long floor() {
+        return floor;
+    }
+
+    public void reset() {
         totalCount = overRange = 0;
+
+        Arrays.fill(sampleCount, 0);
     }
 
     @Override

@@ -20,13 +20,18 @@ import net.openhft.chronicle.core.ClassLocal;
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.OS;
 import net.openhft.chronicle.core.pool.ClassAliasPool;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.*;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
+
+import static net.openhft.chronicle.core.util.ObjectUtils.Immutability.MAYBE;
+import static net.openhft.chronicle.core.util.ObjectUtils.Immutability.NO;
 
 /**
  * Created by peter on 23/06/15.
@@ -50,7 +55,8 @@ public enum ObjectUtils {
     static final ClassLocal<ThrowingFunction<String, Object, Exception>> PARSER_CL = ClassLocal.withInitial(c -> {
         if (c == Class.class)
             return ClassAliasPool.CLASS_ALIASES::forName;
-
+        if (c == Boolean.class)
+            return ObjectUtils::isTrue;
         try {
             Method valueOf = c.getDeclaredMethod("valueOf", String.class);
             valueOf.setAccessible(true);
@@ -83,6 +89,8 @@ public enum ObjectUtils {
             throw asCCE(e);
         }
     });
+    static final ClassLocal<Map<String, Enum>> CASE_IGNORE_LOOKUP = ClassLocal.withInitial(ObjectUtils::caseIgnoreLookup);
+    private static final Map<Class, Immutability> immutabilityMap = new ConcurrentHashMap<>();
     private static final ClassLocal<Supplier> SUPPLIER_CLASS_LOCAL = ClassLocal.withInitial(c -> {
         if (c == null)
             throw new NullPointerException();
@@ -90,6 +98,8 @@ public enum ObjectUtils {
             throw new IllegalArgumentException("primitive: " + c.getName());
         if (c.isInterface())
             throw new IllegalArgumentException("interface: " + c.getName());
+        if (Modifier.isAbstract(c.getModifiers()))
+            throw new IllegalArgumentException("abstract class: " + c.getName());
         try {
             Constructor constructor = c.getDeclaredConstructor();
             constructor.setAccessible(true);
@@ -117,6 +127,24 @@ public enum ObjectUtils {
         DEFAULT_MAP.put(double.class, 0.0);
     }
 
+    public static void immutabile(Class clazz, boolean isImmutable) {
+        immutabilityMap.put(clazz, isImmutable ? Immutability.YES : Immutability.NO);
+    }
+
+    public static Immutability isImmutable(Class clazz) {
+        Immutability immutability = immutabilityMap.get(clazz);
+        if (immutability == null)
+            return Comparable.class.isAssignableFrom(clazz) ? MAYBE : NO;
+        return immutability;
+    }
+
+    @NotNull
+    public static boolean isTrue(CharSequence s) {
+        return StringUtils.equalsCaseIgnore(s, "true") ||
+                StringUtils.equalsCaseIgnore(s, "y") ||
+                StringUtils.equalsCaseIgnore(s, "yes");
+    }
+
     /**
      * If the class is a primitive type, change it to the equivalent wrapper.
      *
@@ -138,13 +166,29 @@ public enum ObjectUtils {
                 : convertTo0(eClass, o);
     }
 
+    private static Map<String, Enum> caseIgnoreLookup(Class c) {
+        Map<String, Enum> map = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Object o : c.getEnumConstants()) {
+            Enum e = (Enum) o;
+            map.put(e.name().toUpperCase(), e);
+        }
+        return map;
+    }
+
+    public static <E extends Enum<E>> E valueOfIgnoreCase(Class<E> eClass, String name) {
+        final Map<String, Enum> map = CASE_IGNORE_LOOKUP.get(eClass);
+        final E anEnum = (E) map.get(name);
+        return anEnum == null ? Enum.valueOf(eClass, name) : anEnum;
+    }
+
     static <E> E convertTo0(Class<E> eClass, Object o)
             throws ClassCastException, IllegalArgumentException {
         eClass = primToWrapper(eClass);
         if (eClass.isInstance(o) || o == null) return (E) o;
         if (eClass == Void.class) return null;
+        if (eClass == String.class) return (E) o.toString();
         if (Enum.class.isAssignableFrom(eClass)) {
-            return (E) Enum.valueOf((Class) eClass, o.toString());
+            return (E) valueOfIgnoreCase((Class) eClass, o.toString());
         }
         if (o instanceof CharSequence) {
             CharSequence cs = (CharSequence) o;
@@ -333,5 +377,13 @@ public enum ObjectUtils {
             }
         }
         throw new IllegalArgumentException("No matching super interface for " + clazz + " which was a " + interfaceClass);
+    }
+
+    public static boolean isConcreteClass(Class tClass) {
+        return (tClass.getModifiers() & (Modifier.ABSTRACT | Modifier.INTERFACE)) == 0;
+    }
+
+    public enum Immutability {
+        YES, NO, MAYBE
     }
 }

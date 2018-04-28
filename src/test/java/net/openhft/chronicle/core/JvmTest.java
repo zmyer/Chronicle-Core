@@ -25,10 +25,11 @@ import sun.nio.ch.DirectBuffer;
 import javax.naming.ConfigurationException;
 import java.nio.ByteBuffer;
 
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.*;
 
-/**
- * Created by peter on 26/02/2016.
+/*
+ * Created by Peter Lawrey on 26/02/2016.
  */
 public class JvmTest {
 
@@ -47,6 +48,11 @@ public class JvmTest {
     @Test(expected = ConfigurationException.class)
     public void testRethrow() {
         Jvm.rethrow(new ConfigurationException());
+    }
+
+    @Test
+    public void shouldGetMajorVersion() throws Exception {
+        assertThat(Jvm.majorVersion() > 0, is(true));
     }
 
     @Test
@@ -114,5 +120,10 @@ public class JvmTest {
     public void testMaxDirectMemory() {
         long maxDirectMemory = Jvm.maxDirectMemory();
         assertTrue(maxDirectMemory > 0);
+    }
+
+    @Test
+    public void enableSignals() {
+        Jvm.signalHandler(signal -> System.out.println(signal + " occurred"));
     }
 }

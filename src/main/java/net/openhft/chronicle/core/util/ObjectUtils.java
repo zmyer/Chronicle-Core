@@ -19,8 +19,9 @@ package net.openhft.chronicle.core.util;
 import net.openhft.chronicle.core.ClassLocal;
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.OS;
-import net.openhft.chronicle.core.pool.ClassAliasPool;
+import net.openhft.chronicle.core.pool.EnumCache;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.*;
 import java.math.BigDecimal;
@@ -28,13 +29,15 @@ import java.math.BigInteger;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static net.openhft.chronicle.core.pool.ClassAliasPool.CLASS_ALIASES;
 import static net.openhft.chronicle.core.util.ObjectUtils.Immutability.MAYBE;
 import static net.openhft.chronicle.core.util.ObjectUtils.Immutability.NO;
 
-/**
- * Created by peter on 23/06/15.
+/*
+ * Created by Peter Lawrey on 23/06/15.
  */
 public enum ObjectUtils {
     ;
@@ -52,44 +55,19 @@ public enum ObjectUtils {
         put(void.class, Void.class);
     }};
     static final Map<Class, Object> DEFAULT_MAP = new HashMap<>();
-    static final ClassLocal<ThrowingFunction<String, Object, Exception>> PARSER_CL = ClassLocal.withInitial(c -> {
-        if (c == Class.class)
-            return ClassAliasPool.CLASS_ALIASES::forName;
-        if (c == Boolean.class)
-            return ObjectUtils::isTrue;
+    static final ClassLocal<ThrowingFunction<String, Object, Exception>> PARSER_CL = ClassLocal.withInitial(new ConversionFunction());
+    static final ClassLocal<Map<String, Enum>> CASE_IGNORE_LOOKUP = ClassLocal.withInitial(ObjectUtils::caseIgnoreLookup);
+    static final ClassValue<Method> READ_RESOLVE = ClassLocal.withInitial(c -> {
         try {
-            Method valueOf = c.getDeclaredMethod("valueOf", String.class);
-            valueOf.setAccessible(true);
-            return s -> valueOf.invoke(null, s);
-        } catch (NoSuchMethodException e) {
-            // ignored
-        }
-
-        try {
-            Method valueOf = c.getDeclaredMethod("parse", CharSequence.class);
-            valueOf.setAccessible(true);
-            return s -> valueOf.invoke(null, s);
-
-        } catch (NoSuchMethodException e) {
-            // ignored
-        }
-        try {
-            Method valueOf = c.getDeclaredMethod("fromString", String.class);
-            valueOf.setAccessible(true);
-            return s -> valueOf.invoke(null, s);
-
-        } catch (NoSuchMethodException e) {
-            // ignored
-        }
-        try {
-            Constructor constructor = c.getDeclaredConstructor(String.class);
-            constructor.setAccessible(true);
-            return s -> constructor.newInstance(s);
+            Method m = c.getDeclaredMethod("readResolve");
+            m.setAccessible(true);
+            return m;
+        } catch (NoSuchMethodException expected) {
+            return null;
         } catch (Exception e) {
-            throw asCCE(e);
+            throw new AssertionError(e);
         }
     });
-    static final ClassLocal<Map<String, Enum>> CASE_IGNORE_LOOKUP = ClassLocal.withInitial(ObjectUtils::caseIgnoreLookup);
     private static final Map<Class, Immutability> immutabilityMap = new ConcurrentHashMap<>();
     private static final ClassLocal<Supplier> SUPPLIER_CLASS_LOCAL = ClassLocal.withInitial(c -> {
         if (c == null)
@@ -100,10 +78,12 @@ public enum ObjectUtils {
             throw new IllegalArgumentException("interface: " + c.getName());
         if (Modifier.isAbstract(c.getModifiers()))
             throw new IllegalArgumentException("abstract class: " + c.getName());
+        if (c.isEnum())
+            throw new IllegalArgumentException("enum class: " + c.getName());
         try {
             Constructor constructor = c.getDeclaredConstructor();
             constructor.setAccessible(true);
-            return ThrowingSupplier.asSupplier((ThrowingSupplier<Object, ReflectiveOperationException>) constructor::newInstance);
+            return ThrowingSupplier.asSupplier(constructor::newInstance);
 
         } catch (Exception e) {
             return () -> {
@@ -131,14 +111,13 @@ public enum ObjectUtils {
         immutabilityMap.put(clazz, isImmutable ? Immutability.YES : Immutability.NO);
     }
 
-    public static Immutability isImmutable(Class clazz) {
+    public static Immutability isImmutable(@NotNull Class clazz) {
         Immutability immutability = immutabilityMap.get(clazz);
         if (immutability == null)
             return Comparable.class.isAssignableFrom(clazz) ? MAYBE : NO;
         return immutability;
     }
 
-    @NotNull
     public static boolean isTrue(CharSequence s) {
         return StringUtils.equalsCaseIgnore(s, "true") ||
                 StringUtils.equalsCaseIgnore(s, "y") ||
@@ -158,7 +137,8 @@ public enum ObjectUtils {
         return eClass;
     }
 
-    public static <E> E convertTo(Class<E> eClass, Object o)
+    @Nullable
+    public static <E> E convertTo(@Nullable Class<E> eClass, @Nullable Object o)
             throws ClassCastException, IllegalArgumentException {
         // shorter path.
         return eClass == null || o == null || eClass.isInstance(o)
@@ -166,22 +146,35 @@ public enum ObjectUtils {
                 : convertTo0(eClass, o);
     }
 
-    private static Map<String, Enum> caseIgnoreLookup(Class c) {
-        Map<String, Enum> map = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    @NotNull
+    private static Map<String, Enum> caseIgnoreLookup(@NotNull Class c) {
+        @NotNull Map<String, Enum> map = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Object o : c.getEnumConstants()) {
-            Enum e = (Enum) o;
+            @NotNull Enum e = (Enum) o;
             map.put(e.name().toUpperCase(), e);
         }
         return map;
     }
 
-    public static <E extends Enum<E>> E valueOfIgnoreCase(Class<E> eClass, String name) {
+    @NotNull
+    public static <E extends Enum<E>> E valueOfIgnoreCase(@NotNull Class<E> eClass, @NotNull String name) {
         final Map<String, Enum> map = CASE_IGNORE_LOOKUP.get(eClass);
-        final E anEnum = (E) map.get(name);
-        return anEnum == null ? Enum.valueOf(eClass, name) : anEnum;
+        if (name.startsWith("{") && name.endsWith("}"))
+            return getSingletonForEnum(eClass);
+        @NotNull final E anEnum = (E) map.get(name);
+        return anEnum == null ? EnumCache.of(eClass).valueOf(name) : anEnum;
     }
 
-    static <E> E convertTo0(Class<E> eClass, Object o)
+    public static <E extends Enum<E>> E getSingletonForEnum(Class<E> eClass) {
+        E[] enumConstants = eClass.getEnumConstants();
+        if (enumConstants.length == 0)
+            throw new IllegalStateException("Cannot convert marshallable to " + eClass + " as it doesn't have any instances");
+        if (enumConstants.length > 1)
+            Jvm.warn().on(ObjectUtils.class, eClass + " has multiple INSTANCEs, picking the first one");
+        return enumConstants[0];
+    }
+
+    static <E> E convertTo0(Class<E> eClass, @Nullable Object o)
             throws ClassCastException, IllegalArgumentException {
         eClass = primToWrapper(eClass);
         if (eClass.isInstance(o) || o == null) return (E) o;
@@ -191,14 +184,14 @@ public enum ObjectUtils {
             return (E) valueOfIgnoreCase((Class) eClass, o.toString());
         }
         if (o instanceof CharSequence) {
-            CharSequence cs = (CharSequence) o;
+            @Nullable CharSequence cs = (CharSequence) o;
             if (Character.class.equals(eClass)) {
                 if (cs.length() > 0)
                     return (E) (Character) cs.charAt(0);
                 else
                     return null;
             }
-            String s = cs.toString();
+            @NotNull String s = cs.toString();
             if (eClass == String.class)
                 return (E) s;
 
@@ -220,32 +213,46 @@ public enum ObjectUtils {
         if (Set.class.isAssignableFrom(eClass)) {
             return (E) new LinkedHashSet((Collection) o);
         }
-//        if (Collection.class.isAssignableFrom(eClass)) {
-//            return convertCollection(eClass, o);
-//        }
+        if (Character.class == eClass) {
+            String s = o.toString();
+            if (s.length() == 1)
+                return (E) (Character) s.charAt(0);
+            if (s.isEmpty())
+                return (E) Character.valueOf((char) 0);
+        }
+        if (CharSequence.class.isAssignableFrom(eClass)) {
+            try {
+                return (E) PARSER_CL.get(eClass).apply(o.toString());
+
+            } catch (Exception e) {
+                throw asCCE(e);
+            }
+        }
         throw new ClassCastException("Unable to convert " + o.getClass() + " " + o + " to " + eClass);
     }
 
+    @NotNull
     public static ClassCastException asCCE(Exception e) {
-        ClassCastException cce = new ClassCastException();
+        @NotNull ClassCastException cce = new ClassCastException();
         cce.initCause(e);
         return cce;
     }
 
-    private static <E> E convertToArray(Class<E> eClass, Object o)
+    @NotNull
+    private static <E> E convertToArray(@NotNull Class<E> eClass, Object o)
             throws IllegalArgumentException {
         int len = sizeOf(o);
         Object array = Array.newInstance(eClass.getComponentType(), len);
         Iterator iter = iteratorFor(o);
         Class elementType = elementType(eClass);
         for (int i = 0; i < len; i++) {
-            Object value = convertTo(elementType, iter.next());
+            @Nullable Object value = convertTo(elementType, iter.next());
             Array.set(array, i, value);
         }
         return (E) array;
     }
 
-    private static <E> Class elementType(Class<E> eClass) {
+    private static <E> Class elementType(@NotNull Class<E> eClass) {
         if (Object[].class.isAssignableFrom(eClass))
             return eClass.getComponentType();
         return Object.class;
@@ -274,7 +281,7 @@ public enum ObjectUtils {
     private static Number convertToNumber(Class eClass, Object o)
             throws NumberFormatException {
         if (o instanceof Number) {
-            Number n = (Number) o;
+            @NotNull Number n = (Number) o;
             if (eClass == Double.class)
                 return n.doubleValue();
             if (eClass == Long.class)
@@ -315,18 +322,19 @@ public enum ObjectUtils {
         throw new UnsupportedOperationException("Cannot convert " + o.getClass() + " to " + eClass);
     }
 
-    public static <T> T newInstance(Class<T> clazz) {
+    @NotNull
+    public static <T> T newInstance(@NotNull Class<T> clazz) {
         Supplier cons = SUPPLIER_CLASS_LOCAL.get(clazz);
         return (T) cons.get();
     }
 
-    public static <T> T[] addAll(T first, T... additional) {
+    public static <T> T[] addAll(@NotNull T first, @NotNull T... additional) {
         T[] interfaces;
         if (additional.length == 0) {
             interfaces = (T[]) Array.newInstance(first.getClass(), 1);
             interfaces[0] = first;
         } else {
-            List<T> objs = new ArrayList<>();
+            @NotNull List<T> objs = new ArrayList<>();
             objs.add(first);
             Collections.addAll(objs, additional);
             interfaces = objs.toArray((T[]) Array.newInstance(first.getClass(), objs.size()));
@@ -334,9 +342,15 @@ public enum ObjectUtils {
         return interfaces;
     }
 
-    public static <T> T printAll(Class<T> tClass, Class... additional) {
+    public static boolean matchingClass(@NotNull Class base, @NotNull Class toMatch) {
+        return base == toMatch ||
+                Enum.class.isAssignableFrom(toMatch) && base.equals(toMatch.getEnclosingClass());
+    }
+
+    @NotNull
+    public static <T> T printAll(@NotNull Class<T> tClass, Class... additional) throws IllegalArgumentException {
         return onMethodCall((method, args) -> {
-            String argsStr = args == null ? "()" : Arrays.toString(args);
+            @NotNull String argsStr = args == null ? "()" : Arrays.toString(args);
             System.out.println(method.getName() + " " + argsStr);
             return defaultValue(method.getReturnType());
         }, tClass, additional);
@@ -346,12 +360,13 @@ public enum ObjectUtils {
         return DEFAULT_MAP.get(type);
     }
 
-    public static <T> T onMethodCall(BiFunction<Method, Object[], Object> biFunction, Class<T> tClass, Class... additional) {
+    @NotNull
+    public static <T> T onMethodCall(@NotNull BiFunction<Method, Object[], Object> biFunction, @NotNull Class<T> tClass, Class... additional) throws IllegalArgumentException {
         Class[] interfaces = addAll(tClass, additional);
         //noinspection unchecked
         return (T) Proxy.newProxyInstance(tClass.getClassLoader(), interfaces, new InvocationHandler() {
             @Override
-            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            public Object invoke(Object proxy, @NotNull Method method, Object[] args) throws Throwable {
                 if (method.getDeclaringClass() == Object.class) {
                     return method.invoke(this, args);
                 }
@@ -360,14 +375,16 @@ public enum ObjectUtils {
         });
     }
 
-    public static Class getTypeFor(Class clazz, Class interfaceClass) {
+    @NotNull
+    public static Class getTypeFor(@NotNull Class clazz, @NotNull Class interfaceClass) {
         return getTypeFor(clazz, interfaceClass, 0);
     }
 
-    public static Class getTypeFor(Class clazz, Class interfaceClass, int index) {
+    @NotNull
+    public static Class getTypeFor(@NotNull Class clazz, @NotNull Class interfaceClass, int index) {
         for (Type type : clazz.getGenericInterfaces()) {
             if (type instanceof ParameterizedType) {
-                ParameterizedType ptype = (ParameterizedType) type;
+                @NotNull ParameterizedType ptype = (ParameterizedType) type;
                 if (interfaceClass.isAssignableFrom((Class<?>) ptype.getRawType())) {
                     Type type0 = ptype.getActualTypeArguments()[index];
                     if (type0 instanceof Class)
@@ -379,11 +396,65 @@ public enum ObjectUtils {
         throw new IllegalArgumentException("No matching super interface for " + clazz + " which was a " + interfaceClass);
     }
 
-    public static boolean isConcreteClass(Class tClass) {
+    public static boolean isConcreteClass(@NotNull Class tClass) {
         return (tClass.getModifiers() & (Modifier.ABSTRACT | Modifier.INTERFACE)) == 0;
+    }
+
+    public static Object readResolve(@NotNull Object o) {
+        Method readResove = READ_RESOLVE.get(o.getClass());
+        if (readResove == null)
+            return o;
+        try {
+            return readResove.invoke(o);
+        } catch (IllegalAccessException e) {
+            throw Jvm.rethrow(e);
+        } catch (InvocationTargetException e) {
+            throw Jvm.rethrow(e.getCause());
+        }
     }
 
     public enum Immutability {
         YES, NO, MAYBE
+    }
+
+    private static class ConversionFunction implements Function<Class<?>, ThrowingFunction<String, Object, Exception>> {
+        @Override
+        public ThrowingFunction<String, Object, Exception> apply(@NotNull Class<?> c) {
+            if (c == Class.class)
+                return CLASS_ALIASES::forName;
+            if (c == Boolean.class)
+                return ObjectUtils::isTrue;
+            try {
+                Method valueOf = c.getDeclaredMethod("valueOf", String.class);
+                valueOf.setAccessible(true);
+                return s -> valueOf.invoke(null, s);
+            } catch (NoSuchMethodException e) {
+                // ignored
+            }
+
+            try {
+                Method valueOf = c.getDeclaredMethod("parse", CharSequence.class);
+                valueOf.setAccessible(true);
+                return s -> valueOf.invoke(null, s);
+
+            } catch (NoSuchMethodException e) {
+                // ignored
+            }
+            try {
+                Method valueOf = c.getDeclaredMethod("fromString", String.class);
+                valueOf.setAccessible(true);
+                return s -> valueOf.invoke(null, s);
+
+            } catch (NoSuchMethodException e) {
+                // ignored
+            }
+            try {
+                Constructor constructor = c.getDeclaredConstructor(String.class);
+                constructor.setAccessible(true);
+                return constructor::newInstance;
+            } catch (Exception e) {
+                throw asCCE(e);
+            }
+        }
     }
 }

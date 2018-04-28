@@ -16,13 +16,22 @@
 
 package net.openhft.chronicle.core.util;
 
-/**
- * Created by peter on 23/06/15.
+import org.jetbrains.annotations.NotNull;
+
+import java.io.Serializable;
+
+/*
+ * Created by Peter Lawrey on 23/06/15.
  */
+@FunctionalInterface
 public interface ReadResolvable<T> {
     @SuppressWarnings("unchecked")
     static <T> T readResolve(Object o) {
-        return (T) (o instanceof ReadResolvable ? ((ReadResolvable) o).readResolve() : o);
+        return (T) (o instanceof ReadResolvable
+                ? ((ReadResolvable) o).readResolve()
+                : o instanceof Serializable
+                ? ObjectUtils.readResolve(o)
+                : o);
     }
 
     /**
@@ -30,5 +39,6 @@ public interface ReadResolvable<T> {
      *
      * @return the object to use instead.
      */
+    @NotNull
     T readResolve();
 }

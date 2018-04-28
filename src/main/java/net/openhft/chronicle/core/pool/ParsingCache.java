@@ -18,15 +18,18 @@ package net.openhft.chronicle.core.pool;
 
 import net.openhft.chronicle.core.Maths;
 import net.openhft.chronicle.core.util.StringUtils;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-/**
- * Created by peter on 29/02/16.
+/*
+ * Created by Peter Lawrey on 29/02/16.
  */
 public class ParsingCache<E> {
+    @NotNull
     protected final ParsedData<E>[] interner;
     protected final int mask, shift;
     private final Function<String, E> eFunction;
@@ -47,14 +50,14 @@ public class ParsingCache<E> {
         int hash = Maths.hash32(cs);
         int h = hash & mask;
         ParsedData<E> s = interner[h];
-        if (StringUtils.isEqual(s.string, cs))
+        if (s != null && StringUtils.isEqual(s.string, cs))
             return s.e;
         int h2 = (hash >> shift) & mask;
         ParsedData<E> s2 = interner[h2];
-        if (StringUtils.isEqual(s2.string, cs))
+        if (s2 != null && StringUtils.isEqual(s2.string, cs))
             return s2.e;
-        String string = cs.toString();
-        ParsedData<E> s3 = new ParsedData<>(string, eFunction.apply(string));
+        @NotNull String string = cs.toString();
+        @NotNull ParsedData<E> s3 = new ParsedData<>(string, eFunction.apply(string));
         interner[s == null || (s2 != null && toggle()) ? h : h2] = s3;
 
         return s3.e;
@@ -65,7 +68,7 @@ public class ParsingCache<E> {
     }
 
     public int valueCount() {
-        return (int) Stream.of(interner).filter(s -> s != null).count();
+        return (int) Stream.of(interner).filter(Objects::nonNull).count();
     }
 
     static class ParsedData<E> {

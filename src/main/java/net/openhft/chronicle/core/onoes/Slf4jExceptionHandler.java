@@ -17,29 +17,62 @@
 
 package net.openhft.chronicle.core.onoes;
 
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 
-/**
- * Created by Peter on 13/06/2016.
+import java.util.Arrays;
+import java.util.List;
+
+/*
+ * Created by Peter Lawrey on 13/06/2016.
  */
 public enum Slf4jExceptionHandler implements ExceptionHandler {
     FATAL {
         @Override
-        public void on(Class clazz, String message, Throwable thrown) {
+        public void on(@NotNull Class clazz, String message, Throwable thrown) {
             LoggerFactory.getLogger(clazz).error("FATAL error " + message, thrown);
-            System.exit(-1);
+            if (!Slf4jExceptionHandler.isJUnitTest()) {
+                System.exit(-1);
+            }
         }
     },
     WARN {
         @Override
-        public void on(Class clazz, String message, Throwable thrown) {
+        public void on(@NotNull Class clazz, String message, Throwable thrown) {
             LoggerFactory.getLogger(clazz).warn(message, thrown);
         }
     },
     DEBUG {
         @Override
-        public void on(Class clazz, String message, Throwable thrown) {
+        public void on(@NotNull Class clazz, String message, Throwable thrown) {
             LoggerFactory.getLogger(clazz).debug(message, thrown);
         }
+
+        @Override
+        public boolean isEnabled(Class clazz) {
+            return LoggerFactory.getLogger(clazz).isDebugEnabled();
+        }
+    };
+
+    public static Slf4jExceptionHandler valueOf(LogLevel logLevel) {
+        if (logLevel == LogLevel.FATAL)
+            return FATAL;
+        if (logLevel == LogLevel.WARN)
+            return WARN;
+        return DEBUG;
+    }
+
+    private static boolean isJUnitTest() {
+
+        for (StackTraceElement[] stackTrace : Thread.getAllStackTraces().values()) {
+
+            List<StackTraceElement> list = Arrays.asList(stackTrace);
+            for (StackTraceElement element : list) {
+                if (element.getClassName().contains(".junit")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

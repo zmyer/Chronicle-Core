@@ -16,18 +16,19 @@
 
 package net.openhft.chronicle.core.util;
 
+import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- * Created by peter on 10/07/15.
+/*
+ * Created by Peter Lawrey on 10/07/15.
  */
 public class HistogramTest {
 
     @Test
     public void testSampleRange() {
-        Histogram h = new Histogram(40, 2);
+        @NotNull Histogram h = new Histogram(40, 2);
         double base = 1;
         for (int i = 0; i < 40; i++) {
 //            System.out.println(i);
@@ -42,7 +43,7 @@ public class HistogramTest {
 
     @Test
     public void testSamples() {
-        Histogram h = new Histogram(7, 5);
+        @NotNull Histogram h = new Histogram(7, 5);
         for (int i = 1; i <= 100; i++)
             h.sample(i);
         assertEquals(101, h.percentile(1), 0);

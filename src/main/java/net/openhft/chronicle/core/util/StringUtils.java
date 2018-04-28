@@ -16,15 +16,18 @@
 
 package net.openhft.chronicle.core.util;
 
+import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.OS;
 import net.openhft.chronicle.core.annotation.ForceInline;
+import net.openhft.chronicle.core.annotation.Java9;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Field;
 
 import static java.lang.Character.toLowerCase;
 
-/**
+/*
  * Created by Rob Austin
  */
 public enum StringUtils {
@@ -50,7 +53,7 @@ public enum StringUtils {
         }
     }
 
-    public static void setLength(StringBuilder sb, int length) {
+    public static void setLength(@NotNull StringBuilder sb, int length) {
         try {
             SB_COUNT.set(sb, length);
         } catch (IllegalAccessException e) {
@@ -58,7 +61,7 @@ public enum StringUtils {
         }
     }
 
-    public static void set(StringBuilder sb, CharSequence cs) {
+    public static void set(@NotNull StringBuilder sb, CharSequence cs) {
         sb.setLength(0);
         sb.append(cs);
     }
@@ -76,35 +79,49 @@ public enum StringUtils {
     }
 
     @ForceInline
-    public static boolean isEqual(CharSequence s, CharSequence cs) {
+    public static boolean isEqual(@Nullable CharSequence s, @Nullable CharSequence cs) {
+        if (s instanceof StringBuilder) {
+            return isEqual((StringBuilder) s, cs);
+        }
         if (s == cs)
             return true;
         if (s == null) return false;
         if (cs == null) return false;
-        if (s.length() != cs.length()) return false;
-        for (int i = 0; i < cs.length(); i++)
+        int sLength = s.length();
+        int csLength = cs.length();
+        if (sLength != csLength) return false;
+        for (int i = 0; i < csLength; i++)
             if (s.charAt(i) != cs.charAt(i))
                 return false;
         return true;
     }
 
     @ForceInline
-    public static boolean isEqual(StringBuilder s, CharSequence cs) {
+    public static boolean isEqual(@Nullable StringBuilder s, @Nullable CharSequence cs) {
         if (s == cs)
             return true;
         if (s == null) return false;
         if (cs == null) return false;
         int length = cs.length();
         if (s.length() != length) return false;
-        char[] chars = StringUtils.extractChars(s);
-        for (int i = 0; i < length; i++)
-            if (chars[i] != cs.charAt(i))
-                return false;
-        return true;
+
+        if (Jvm.isJava9Plus()) {
+            for (int i = 0; i < length; i++)
+                // This is not as fast as it could be.
+                if (s.charAt(i) != cs.charAt(i))
+                    return false;
+            return true;
+        } else {
+            char[] chars = StringUtils.extractChars(s);
+            for (int i = 0; i < length; i++)
+                if (chars[i] != cs.charAt(i))
+                    return false;
+            return true;
+        }
     }
 
     @ForceInline
-    public static boolean equalsCaseIgnore(CharSequence s, CharSequence cs) {
+    public static boolean equalsCaseIgnore(@Nullable CharSequence s, @NotNull CharSequence cs) {
         if (s == null) return false;
         if (s.length() != cs.length()) return false;
         for (int i = 0; i < cs.length(); i++)
@@ -114,26 +131,73 @@ public enum StringUtils {
         return true;
     }
 
+    @Nullable
     @ForceInline
-    public static String toString(Object o) {
+    public static String toString(@Nullable Object o) {
         return o == null ? null : o.toString();
     }
 
     public static char[] extractChars(StringBuilder sb) {
+        if (Jvm.isJava9Plus()) {
+            final char[] data = new char[sb.length()];
+            sb.getChars(0, sb.length(), data, 0);
+            return data;
+        }
+
         return OS.memory().getObject(sb, SB_VALUE_OFFSET);
     }
 
-    public static char[] extractChars(String s) {
+    @Java9
+    public static byte getStringCoder(@NotNull String str) {
+        return getStringCoderForStringOrStringBuilder(str);
+    }
+
+    @Java9
+    public static byte getStringCoder(@NotNull StringBuilder str) {
+        return getStringCoderForStringOrStringBuilder(str);
+    }
+
+    @Java9
+    private static byte getStringCoderForStringOrStringBuilder(@NotNull CharSequence charSequence) {
+        try {
+            return Jvm.getField(charSequence.getClass(), "coder").getByte(charSequence);
+        } catch (IllegalArgumentException | IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Java9
+    public static byte[] extractBytes(@NotNull StringBuilder sb) {
+        ensureJava9Plus();
+
+        return OS.memory().getObject(sb, SB_VALUE_OFFSET);
+    }
+
+    public static char[] extractChars(@NotNull String s) {
+        if (Jvm.isJava9Plus()) {
+            return s.toCharArray();
+        }
         return OS.memory().getObject(s, S_VALUE_OFFSET);
     }
 
-    public static void setCount(StringBuilder sb, int count) {
-        OS.memory().setInt(sb, SB_COUNT_OFFSET, count);
+    @Java9
+    public static byte[] extractBytes(@NotNull String s) {
+        ensureJava9Plus();
+
+        return OS.memory().getObject(s, S_VALUE_OFFSET);
     }
 
-    public static String newString(char[] chars) {
+    public static void setCount(@NotNull StringBuilder sb, int count) {
+        OS.memory().writeInt(sb, SB_COUNT_OFFSET, count);
+    }
+
+    @NotNull
+    public static String newString(@NotNull char[] chars) {
+        if (Jvm.isJava9Plus()) {
+            return new String(chars);
+        }
         //noinspection RedundantStringConstructorCall
-        String str = new String();
+        @NotNull String str = new String();
         try {
             S_VALUE.set(str, chars);
             return str;
@@ -142,7 +206,22 @@ public enum StringUtils {
         }
     }
 
-    public static String firstLowerCase(String str) {
+    @Java9
+    @NotNull
+    public static String newStringFromBytes(@NotNull byte[] bytes) {
+        ensureJava9Plus();
+        //noinspection RedundantStringConstructorCall
+        @NotNull String str = new String();
+        try {
+            S_VALUE.set(str, bytes);
+            return str;
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Nullable
+    public static String firstLowerCase(@Nullable String str) {
         if (str == null || str.isEmpty())
             return str;
         final char ch = str.charAt(0);
@@ -150,8 +229,8 @@ public enum StringUtils {
         return ch == c2 ? str : c2 + str.substring(1);
     }
 
-    public static double parseDouble(@net.openhft.chronicle.core.annotation.NotNull
-                                     CharSequence in) {
+    public static double parseDouble(@NotNull @net.openhft.chronicle.core.annotation.NotNull
+                                             CharSequence in) {
         long value = 0;
         int exp = 0;
         boolean negative = false;
@@ -200,8 +279,14 @@ public enum StringUtils {
         return asDouble(value, exp, negative, decimalPlaces);
     }
 
-    private static boolean compareRest(@net.openhft.chronicle.core.annotation.NotNull CharSequence in,
-                                       int pos, @net.openhft.chronicle.core.annotation.NotNull String s) {
+    private static void ensureJava9Plus() {
+        if (!Jvm.isJava9Plus()) {
+            throw new UnsupportedOperationException("This method is only supported on Java9+ runtimes");
+        }
+    }
+
+    private static boolean compareRest(@NotNull @net.openhft.chronicle.core.annotation.NotNull CharSequence in,
+                                       int pos, @NotNull @net.openhft.chronicle.core.annotation.NotNull String s) {
 
         if (s.length() > in.length() - pos)
             return false;
@@ -270,15 +355,16 @@ public enum StringUtils {
         return negative ? -d : d;
     }
 
-    public static String toTitleCase(String name) {
+    @Nullable
+    public static String toTitleCase(@Nullable String name) {
         if (name == null || name.isEmpty())
             return name;
-        StringBuilder sb = new StringBuilder();
+        @NotNull StringBuilder sb = new StringBuilder();
         sb.append(Character.toUpperCase(name.charAt(0)));
         boolean wasUnder = false;
         for (int i = 1; i < name.length(); i++) {
             char ch0 = name.charAt(i);
-            char ch1 = i+1 < name.length() ? name.charAt(i+1) : ' ';
+            char ch1 = i + 1 < name.length() ? name.charAt(i + 1) : ' ';
             if (Character.isLowerCase(ch0)) {
                 sb.append(Character.toUpperCase(ch0));
                 if (Character.isUpperCase(ch1)) {

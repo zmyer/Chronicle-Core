@@ -16,58 +16,79 @@
 
 package net.openhft.chronicle.core;
 
+import net.openhft.chronicle.core.util.AbstractInvocationHandler;
+import org.jetbrains.annotations.NotNull;
+
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-/**
- * Created by peter on 13/12/16.
+/*
+ * Created by Peter Lawrey on 13/12/16.
  */
 public enum Mocker {
     ;
 
-    public static <T> T logging(Class<T> tClass, String description, PrintStream out) {
+    @NotNull
+    public static <T> T logging(@NotNull Class<T> tClass, String description, @NotNull PrintStream out) {
         return intercepting(tClass, description, out::println);
     }
 
-    public static <T> T logging(Class<T> tClass, String description, PrintWriter out) {
+    @NotNull
+    public static <T> T logging(@NotNull Class<T> tClass, String description, @NotNull PrintWriter out) {
         return intercepting(tClass, description, out::println);
     }
 
-    public static <T> T logging(Class<T> tClass, String description, StringWriter out) {
+    @NotNull
+    public static <T> T logging(@NotNull Class<T> tClass, String description, @NotNull StringWriter out) {
         return logging(tClass, description, new PrintWriter(out));
     }
 
-    public static <T> T queuing(Class<T> tClass, String description, BlockingQueue<String> queue) {
+    @NotNull
+    public static <T> T queuing(@NotNull Class<T> tClass, String description, @NotNull BlockingQueue<String> queue) {
         return intercepting(tClass, description, queue::add);
     }
 
-    public static <T> T intercepting(Class<T> tClass, String description, Consumer<String> consumer) {
+    @NotNull
+    public static <T> T intercepting(@NotNull Class<T> tClass, String description, @NotNull Consumer<String> consumer) {
+        return intercepting(tClass, description, consumer, null);
+    }
+
+    @NotNull
+    public static <T> T intercepting(@NotNull Class<T> tClass, @NotNull final String description, @NotNull Consumer<String> consumer, T t) {
+        return intercepting(tClass,
+                (name, args) -> consumer.accept(description + name + (args == null ? "()" : Arrays.toString(args))),
+                t);
+    }
+
+    @NotNull
+    public static <T> T intercepting(@NotNull Class<T> tClass, @NotNull BiConsumer<String, Object[]> consumer, T t) {
         //noinspection unchecked
-        return (T) Proxy.newProxyInstance(tClass.getClassLoader(), new Class[]{tClass}, new InvocationHandler() {
+        return (T) Proxy.newProxyInstance(tClass.getClassLoader(), new Class[]{tClass}, new AbstractInvocationHandler(ConcurrentHashMap::new) {
             @Override
-            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                if (method.getDeclaringClass() == Object.class)
-                    return method.invoke(this, args);
-                consumer.accept(description + method.getName() + (args == null ? "()" : Arrays.toString(args)));
+            protected Object doInvoke(Object proxy, Method method, Object[] args) throws InvocationTargetException, IllegalAccessException {
+                consumer.accept(method.getName(), args);
+                if (t != null)
+                    method.invoke(t, args);
                 return null;
             }
         });
     }
 
-    public static <T> T ignored(Class<T> tClass) {
+    @NotNull
+    public static <T> T ignored(@NotNull Class<T> tClass) {
         //noinspection unchecked
-        return (T) Proxy.newProxyInstance(tClass.getClassLoader(), new Class[]{tClass}, new InvocationHandler() {
+        return (T) Proxy.newProxyInstance(tClass.getClassLoader(), new Class[]{tClass}, new AbstractInvocationHandler(ConcurrentHashMap::new) {
             @Override
-            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                if (method.getDeclaringClass() == Object.class)
-                    return method.invoke(this, args);
+            protected Object doInvoke(Object proxy, Method method, Object[] args) throws InvocationTargetException, IllegalAccessException {
                 return null;
             }
         });

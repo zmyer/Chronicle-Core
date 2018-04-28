@@ -16,30 +16,47 @@
 
 package net.openhft.chronicle.core;
 
+import net.openhft.chronicle.core.util.ThrowingFunction;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sun.nio.ch.FileChannelImpl;
 
 import java.io.*;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.FileChannel;
-import java.util.Random;
 import java.util.Scanner;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.management.ManagementFactory.getRuntimeMXBean;
 
 /**
- * Low level axcess to OS class.
+ * Low level access to OS class.
  */
 public enum OS {
     ;
     public static final String TMP = System.getProperty("java.io.tmpdir");
     public static final String TARGET = System.getProperty("project.build.directory", findTarget());
+    public static final String USER_DIR = System.getProperty("user.dir");
+    static final ClassLocal<MethodHandle> MAP0_MH = ClassLocal.withInitial(c -> {
+        try {
+            Method map0 = c.getDeclaredMethod("map0", int.class, long.class, long.class);
+            map0.setAccessible(true);
+            return MethodHandles.lookup().unreflect(map0);
+        } catch (NoSuchMethodException e) {
+            throw new AssertionError("Method map0 is not available", e);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    });
     private static final String HOST_NAME = getHostName0();
     private static final String USER_NAME = System.getProperty("user.name");
     private static final Logger LOG = LoggerFactory.getLogger(OS.class);
@@ -47,7 +64,8 @@ public enum OS {
     private static final int MAP_RW = 1;
     private static final int MAP_PV = 2;
     private static final boolean IS64BIT = is64Bit0();
-    private static final int PROCESS_ID = getProcessId0();
+    private static final AtomicInteger PROCESS_ID = new AtomicInteger();
+    @NotNull
     private static final Memory MEMORY = getMemory();
     private static final String OS = System.getProperty("os.name").toLowerCase();
     private static final boolean IS_LINUX = OS.startsWith("linux");
@@ -55,53 +73,60 @@ public enum OS {
     private static final boolean IS_WIN = OS.startsWith("win");
     private static final boolean IS_WIN10 = OS.equals("windows 10");
     private static final int MAP_ALIGNMENT = isWindows() ? 64 << 10 : pageSize();
-    private static final Method UNMAPP0;
     private static final AtomicLong memoryMapped = new AtomicLong();
+    private static MethodHandle UNMAPP0_MH;
+    private static MethodHandle READ0_MH;
 
-    /**
-     * Unmap a region of memory.
-     *
-     * @param address of the start of the mapping.
-     * @param size    of the region mapped.
-     * @throws IOException if the unmap fails.
-     */
     static {
         try {
-            UNMAPP0 = FileChannelImpl.class.getDeclaredMethod("unmap0", long.class, long.class);
-            UNMAPP0.setAccessible(true);
-        } catch (NoSuchMethodException e) {
+            Method unmap0 = FileChannelImpl.class.getDeclaredMethod("unmap0", long.class, long.class);
+            unmap0.setAccessible(true);
+            UNMAPP0_MH = MethodHandles.lookup().unreflect(unmap0);
+
+            Method read0 = Class.forName("sun.nio.ch.FileDispatcherImpl").getDeclaredMethod("read0", FileDescriptor.class, long.class, int.class);
+            read0.setAccessible(true);
+            READ0_MH = MethodHandles.lookup().unreflect(read0);
+
+        } catch (NoSuchMethodException | IllegalAccessException | ClassNotFoundException e) {
             throw new AssertionError(e);
         }
     }
 
+    @NotNull
     private static String findTarget() {
         for (File dir = new File(System.getProperty("user.dir")); dir != null; dir = dir.getParentFile()) {
-            File target = new File(dir, "target");
+            @NotNull File target = new File(dir, "target");
             if (target.exists())
                 return target.getAbsolutePath();
         }
         return TMP + "/target";
     }
 
-    public static String findDir(String suffix) throws FileNotFoundException {
-        for (String s : System.getProperty("java.class.path").split(":")) {
+    @NotNull
+    public static String findDir(@NotNull String suffix) throws FileNotFoundException {
+        for (@NotNull String s : System.getProperty("java.class.path").split(":")) {
             if (s.endsWith(suffix) && new File(s).isDirectory())
                 return s;
         }
         throw new FileNotFoundException(suffix);
     }
 
+    /**
+     * Search a list of directories to find a path which is the last element.
+     *
+     * @param path of directories to use if found, the last path is always appended.
+     * @return the resulting File path.
+     */
     @NotNull
-    public static File findFile(String... path) {
-        File dir = new File(".").getAbsoluteFile();
+    public static File findFile(@NotNull String... path) {
+        @NotNull File dir = new File(".").getAbsoluteFile();
         for (int i = 0; i < path.length - 1; i++) {
-            File dir2 = new File(dir, path[i]);
+            @NotNull File dir2 = new File(dir, path[i]);
             if (dir2.isDirectory())
                 dir = dir2;
         }
         return new File(dir, path[path.length - 1]);
     }
-
 
     public static String getHostName() {
         return HOST_NAME;
@@ -123,8 +148,9 @@ public enum OS {
         }
     }
 
+    @NotNull
     private static Memory getMemory() {
-        Memory memory = null;
+        @Nullable Memory memory = null;
         try {
             Class<? extends Memory> java9MemoryClass = Class
                     .forName("software.chronicle.enterprise.core.Java9Memory")
@@ -133,7 +159,7 @@ public enum OS {
             memory = (Memory) create.invoke(null);
         } catch (ClassNotFoundException expected) {
             // expected
-        } catch (NoSuchMethodException | InvocationTargetException
+        } catch (@NotNull NoSuchMethodException | InvocationTargetException
                 | IllegalAccessException | IllegalArgumentException e) {
             Jvm.warn().on(OS.class, "Unable to load Java9MemoryClass", e);
         }
@@ -145,6 +171,7 @@ public enum OS {
     /**
      * @return native memory accessor class
      */
+    @NotNull
     public static Memory memory() {
         return MEMORY;
     }
@@ -214,12 +241,17 @@ public enum OS {
     }
 
     public static int getProcessId() {
-        return PROCESS_ID;
+        // getting the process id is slow if the reserve DNS is not setup correctly.
+        // which is frustrating since we don't actually use the hostname.
+        int id = PROCESS_ID.get();
+        if (id == 0)
+            PROCESS_ID.set(id = getProcessId0());
+        return id;
     }
 
-    private static int getProcessId0() throws NumberFormatException {
-        String pid = null;
-        final File self = new File("/proc/self");
+    private static int getProcessId0() {
+        @Nullable String pid = null;
+        @NotNull final File self = new File("/proc/self");
         try {
             if (self.exists())
                 pid = self.getCanonicalFile().getName();
@@ -228,14 +260,16 @@ public enum OS {
         }
         if (pid == null)
             pid = getRuntimeMXBean().getName().split("@", 0)[0];
-        if (pid == null) {
-            int rpid = new Random().nextInt(1 << 16);
-            Jvm.warn().on(OS.class, "Unable to determine PID, picked a random number=" + rpid);
-            return rpid;
-
-        } else {
-            return Integer.parseInt(pid);
+        if (pid != null) {
+            try {
+                return Integer.parseInt(pid);
+            } catch (NumberFormatException e) {
+                // ignored
+            }
         }
+        int rpid = ThreadLocalRandom.current().nextInt(2, 1 << 16);
+        Jvm.warn().on(OS.class, "Unable to determine PID, picked a random number=" + rpid);
+        return rpid;
     }
 
     /**
@@ -268,12 +302,14 @@ public enum OS {
      */
     public static long getPidMax() throws NumberFormatException {
         if (isLinux()) {
-            File file = new File("/proc/sys/kernel/pid_max");
+            @NotNull File file = new File("/proc/sys/kernel/pid_max");
             if (file.canRead())
                 try {
                     return Maths.nextPower2(new Scanner(file).nextLong(), 1);
                 } catch (FileNotFoundException e) {
                     Jvm.debug().on(OS.class, e);
+                } catch (IllegalArgumentException e) {
+                    throw new AssertionError(e);
                 }
         } else if (isMacOSX()) {
             return 1L << 24;
@@ -293,46 +329,62 @@ public enum OS {
      * @throws IOException              if the mapping fails
      * @throws IllegalArgumentException if the arguments are not valid
      */
-    public static long map(FileChannel fileChannel, FileChannel.MapMode mode, long start, long size)
+    public static long map(@NotNull FileChannel fileChannel, FileChannel.MapMode mode, long start, long size)
             throws IOException, IllegalArgumentException {
         if (isWindows() && size > 4L << 30)
             throw new IllegalArgumentException("Mapping more than 4096 MiB is unusable on Windows, size = " + (size >> 20) + " MiB");
+        return map0(fileChannel, imodeFor(mode), mapAlign(start), pageAlign(size));
+    }
+
+    private static long invokeFileChannelMap0(@NotNull MethodHandle map0, @NotNull FileChannel fileChannel, int imode, long start, long size,
+                                              @NotNull ThrowingFunction<OutOfMemoryError, Long, IOException> errorHandler) throws IOException {
         try {
-            return map0(fileChannel, imodeFor(mode), mapAlign(start), pageAlign(size));
-        } catch (NoSuchMethodException | IllegalAccessException e) {
-            throw new AssertionError(e);
-        } catch (InvocationTargetException e) {
-            throw asAnIOException(e);
+            return (long) map0.invokeExact((FileChannelImpl) fileChannel, imode, start, size);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError("Method map0 is not accessible", e);
+        } catch (Throwable e) {
+            if (e instanceof OutOfMemoryError) {
+                return errorHandler.apply((OutOfMemoryError) e);
+            } else if (e instanceof IOException) {
+                throw (IOException) e;
+            } else {
+                throw new IOException(e);
+            }
         }
     }
 
-    static long map0(FileChannel fileChannel, int imode, long start, long size)
-            throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, IllegalArgumentException {
-        Method map0 = fileChannel.getClass().getDeclaredMethod("map0", int.class, long.class, long.class);
-        map0.setAccessible(true);
-        final long invoke;
-        try {
+    static long map0(@NotNull FileChannel fileChannel, int imode, long start, long size) throws IOException {
+        MethodHandle map0 = MAP0_MH.computeValue(fileChannel.getClass());
+        final long address = invokeFileChannelMap0(map0, fileChannel, imode, start, size, oome1 -> {
+            System.gc();
+
             try {
-                invoke = (Long) map0.invoke(fileChannel, imode, start, size);
-            } catch (InvocationTargetException e) {
-                throw Jvm.rethrow(e.getCause());
+                Thread.sleep(100L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (OutOfMemoryError oome) {
-            if (oome.getMessage().startsWith("Map failed") && !is64Bit()) {
-                throw new OutOfMemoryError("Ran out of virtual memory on a 32-bit JVM, either use a 64-bit JVM or *reduce* your heap size");
-            }
-            throw oome;
-        }
+
+            return invokeFileChannelMap0(map0, fileChannel, imode, start, size, oome2 -> {
+                throw new IOException("Map failed", oome2);
+            });
+        });
         memoryMapped.addAndGet(size);
-        return invoke;
+        return address;
     }
 
+    /**
+     * Unmap a region of memory.
+     *
+     * @param address of the start of the mapping.
+     * @param size    of the region mapped.
+     * @throws IOException if the unmap fails.
+     */
     public static void unmap(long address, long size) throws IOException {
         try {
             final long size2 = pageAlign(size);
-            UNMAPP0.invoke(null, address, size2);
+            int n = (int) UNMAPP0_MH.invokeExact(address, size2);
             memoryMapped.addAndGet(-size2);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             throw asAnIOException(e);
         }
     }
@@ -341,6 +393,7 @@ public enum OS {
         return memoryMapped.get();
     }
 
+    @NotNull
     private static IOException asAnIOException(Throwable e) {
         if (e instanceof InvocationTargetException)
             e = e.getCause();
@@ -362,21 +415,21 @@ public enum OS {
     }
 
     /**
-     * Get the sapce actually used by a file.
+     * Get the space actually used by a file.
      *
      * @param filename to get the actual size of
      * @return size in bytes.
      */
-    public static long spaceUsed(String filename) {
+    public static long spaceUsed(@NotNull String filename) {
         return spaceUsed(new File(filename));
     }
 
-    private static long spaceUsed(File file) {
+    private static long spaceUsed(@NotNull File file) {
         if (!isWindows()) {
             try {
                 String du_k = run("du", "-ks", file.getAbsolutePath());
                 return Long.parseLong(du_k.substring(0, du_k.indexOf('\t')));
-            } catch (IOException | NumberFormatException e) {
+            } catch (@NotNull IOException | NumberFormatException e) {
                 Jvm.warn().on(OS.class, e);
             }
         }
@@ -384,17 +437,31 @@ public enum OS {
     }
 
     private static String run(String... cmds) throws IOException {
-        ProcessBuilder pb = new ProcessBuilder(cmds);
+        @NotNull ProcessBuilder pb = new ProcessBuilder(cmds);
         pb.redirectErrorStream(true);
         Process process = pb.start();
-        StringWriter sw = new StringWriter();
-        char[] chars = new char[1024];
-        try (Reader r = new InputStreamReader(process.getInputStream())) {
+        @NotNull StringWriter sw = new StringWriter();
+        @NotNull char[] chars = new char[1024];
+        try (@NotNull Reader r = new InputStreamReader(process.getInputStream())) {
             for (int len; (len = r.read(chars)) > 0; ) {
                 sw.write(chars, 0, len);
             }
         }
         return sw.toString();
+    }
+
+    public static String userDir() {
+        return USER_DIR;
+    }
+
+    public static int read0(FileDescriptor fd, long address, int len) throws IOException {
+        try {
+            return (int) READ0_MH.invokeExact(fd, address, len);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Throwable e) {
+            throw new IOException(e);
+        }
     }
 
     public static class Unmapper implements Runnable {
@@ -409,6 +476,7 @@ public enum OS {
             this.size = size;
         }
 
+        @Override
         public void run() {
             if (address == 0)
                 return;
@@ -417,7 +485,7 @@ public enum OS {
                 unmap(address, size);
                 address = 0;
 
-            } catch (IOException | IllegalStateException e) {
+            } catch (@NotNull IOException e) {
                 Jvm.warn().on(OS.class, "Error on unmap and release", e);
             }
         }

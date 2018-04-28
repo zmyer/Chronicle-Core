@@ -18,14 +18,17 @@ package net.openhft.chronicle.core.pool;
 
 import net.openhft.chronicle.core.Maths;
 import net.openhft.chronicle.core.util.StringUtils;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import java.util.stream.Stream;
 
 /**
  * @author peter.lawrey
  */
 public class StringInterner {
+    @NotNull
     protected final String[] interner;
     protected final int mask, shift;
     protected boolean toggle = false;
@@ -46,15 +49,15 @@ public class StringInterner {
         int hash = Maths.hash32(cs);
         int h = hash & mask;
         String s = interner[h];
-        if (StringUtils.isEqual(s, cs))
+        if (StringUtils.isEqual(cs, s))
             return s;
         int h2 = (hash >> shift) & mask;
         String s2 = interner[h2];
-        if (StringUtils.isEqual(s2, cs))
+        if (StringUtils.isEqual(cs, s2))
             return s2;
-        String s3 = cs.toString();
+        @NotNull String s3 = cs.toString();
         interner[s == null || (s2 != null && toggle()) ? h : h2] = s3;
-        
+
         return s3;
     }
 
@@ -63,6 +66,6 @@ public class StringInterner {
     }
 
     public int valueCount() {
-        return (int) Stream.of(interner).filter(s -> s != null).count();
+        return (int) Stream.of(interner).filter(Objects::nonNull).count();
     }
 }

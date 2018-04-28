@@ -18,16 +18,18 @@
 package net.openhft.chronicle.core.threads;
 
 import net.openhft.chronicle.core.Jvm;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by peter on 09/04/16.
+/*
+ * Created by Peter Lawrey on 09/04/16.
  */
 public class ThreadDump {
+    @NotNull
     final Set<Thread> threads;
     final Set<String> ignored = new HashSet<>();
 
@@ -36,6 +38,7 @@ public class ThreadDump {
         ignored.add("Time-limited test");
         ignored.add("Attach Listener");
         ignored.add("process reaper");
+        ignored.add("chronicle-weak-reference-cleaner");
         for (int i = 0, max = Runtime.getRuntime().availableProcessors(); i < max; i++)
             ignored.add("ForkJoinPool.commonPool-worker-" + i);
     }
@@ -45,23 +48,19 @@ public class ThreadDump {
     }
 
     public void assertNoNewThreads() {
-        Map<Thread, StackTraceElement[]> allStackTraces = null;
-        for (int i = 1; i < 4; i++) {
+        @Nullable Map<Thread, StackTraceElement[]> allStackTraces = null;
+        for (int i = 1; i < 5; i++) {
             Jvm.pause(i * i * 50);
             allStackTraces = Thread.getAllStackTraces();
             allStackTraces.keySet().removeAll(threads);
             if (allStackTraces.isEmpty())
                 return;
-            for (Iterator<Thread> iter = allStackTraces.keySet().iterator(); iter.hasNext(); ) {
-                Thread next = iter.next();
-                if (ignored.contains(next.getName()))
-                    iter.remove();
-            }
+            allStackTraces.keySet().removeIf(next -> ignored.stream().anyMatch(item -> next.getName().contains(item)));
             if (allStackTraces.isEmpty())
                 return;
-            for (Map.Entry<Thread, StackTraceElement[]> threadEntry : allStackTraces.entrySet()) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("Thread still running " + threadEntry.getKey());
+            for (@NotNull Map.Entry<Thread, StackTraceElement[]> threadEntry : allStackTraces.entrySet()) {
+                @NotNull StringBuilder sb = new StringBuilder();
+                sb.append("Thread still running ").append(threadEntry.getKey());
                 Jvm.trimStackTrace(sb, threadEntry.getValue());
                 System.err.println(sb);
             }

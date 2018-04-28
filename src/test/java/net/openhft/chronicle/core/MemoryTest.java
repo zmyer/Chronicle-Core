@@ -16,10 +16,11 @@
 
 package net.openhft.chronicle.core;
 
+import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
 
-/**
- * Created by peter on 21/06/15.
+/*
+ * Created by Peter Lawrey on 21/06/15.
  */
 public class MemoryTest {
     @Test
@@ -29,7 +30,7 @@ public class MemoryTest {
 
     @Test
     public void testReadme() {
-        Memory memory = OS.memory();
+        @Nullable Memory memory = OS.memory();
         long address = memory.allocate(1024);
         try {
             memory.writeInt(address, 1);

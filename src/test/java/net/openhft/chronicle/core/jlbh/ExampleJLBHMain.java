@@ -17,8 +17,9 @@
 package net.openhft.chronicle.core.jlbh;
 
 import net.openhft.chronicle.core.Jvm;
+import org.jetbrains.annotations.NotNull;
 
-/**
+/*
  * Created by daniel on 08/03/2016.
  */
 public class ExampleJLBHMain implements JLBHTask {
@@ -29,7 +30,7 @@ public class ExampleJLBHMain implements JLBHTask {
     private JLBH lth;
 
     public static void main(String[] args) {
-        JLBHOptions jlbhOptions = new JLBHOptions()
+        @NotNull JLBHOptions jlbhOptions = new JLBHOptions()
                 .warmUpIterations(Jvm.compileThreshold() * 2)
                 .iterations(10_000_001)
                 .throughput(2000_000)
@@ -43,7 +44,7 @@ public class ExampleJLBHMain implements JLBHTask {
     @Override
     public void run(long startTimeNS) {
         count++;
-        if(count==160_000) {
+        if (count == 160_000) {
             System.out.println("PAUSE");
             //long now = System.nanoTime();
             Jvm.pause(100);
@@ -54,7 +55,7 @@ public class ExampleJLBHMain implements JLBHTask {
         sin = Math.sin(count);
         //nanoSamplerSin.sampleNanos(System.nanoTime()-now);
 
-        lth.sample(System.nanoTime()-startTimeNS);
+        lth.sample(System.nanoTime() - startTimeNS);
     }
 
     @Override

@@ -16,6 +16,8 @@
 
 package net.openhft.chronicle.core;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -26,20 +28,21 @@ public class ReferenceCounter {
 
     // records where reference was created, reserved and released,
     // only used for debugging and only active when assertions are turned on
-    private Queue<Exception> referenceCountHistory;
+    private Queue<Throwable> referenceCountHistory;
 
     private ReferenceCounter(Runnable onRelease) {
         this.onRelease = onRelease;
-        assert newRefCountHistory();
+//        assert newRefCountHistory();
     }
 
+    @NotNull
     public static ReferenceCounter onReleased(Runnable onRelease) {
         return new ReferenceCounter(onRelease);
     }
 
     private boolean newRefCountHistory() {
         referenceCountHistory = new ConcurrentLinkedQueue<>();
-        referenceCountHistory.add(new RuntimeException("creation ref-count=" + 1));
+        referenceCountHistory.add(new Throwable(Integer.toHexString(onRelease.hashCode()) + '-' + Thread.currentThread().getName() + " creation ref-count=" + 1));
         return true;
     }
 
@@ -48,19 +51,19 @@ public class ReferenceCounter {
 
             long v = value.get();
             if (v <= 0) {
-                assert recordResevation(v);
-                assert logReferenceCountHistory();
+//                assert recordResevation(v);
+//                assert logReferenceCountHistory();
                 throw new IllegalStateException("Released");
             }
             if (value.compareAndSet(v, v + 1)) {
-                assert recordResevation(v + 1);
+//                assert recordResevation(v + 1);
                 break;
             }
         }
     }
 
     private boolean recordResevation(long v) {
-        referenceCountHistory.add(new RuntimeException("Reserve ref-count=" + v));
+        referenceCountHistory.add(new Throwable(Integer.toHexString(onRelease.hashCode()) + '-' + Thread.currentThread().getName() + " Reserve ref-count=" + v));
         return true;
     }
 
@@ -68,12 +71,12 @@ public class ReferenceCounter {
         for (; ; ) {
             long v = value.get();
             if (v <= 0) {
-                assert recordRelease(v);
-                assert logReferenceCountHistory();
+//                assert recordRelease(v);
+//                assert logReferenceCountHistory();
                 throw new IllegalStateException("Released");
             }
             if (value.compareAndSet(v, v - 1)) {
-                assert recordRelease(v - 1);
+//                assert recordRelease(v - 1);
                 if (v == 1)
                     onRelease.run();
                 break;
@@ -82,19 +85,20 @@ public class ReferenceCounter {
     }
 
     private boolean recordRelease(long v) {
-        referenceCountHistory.add(new RuntimeException("Release ref-count=" + v));
+        referenceCountHistory.add(new Throwable(Integer.toHexString(onRelease.hashCode()) + '-' + Thread.currentThread().getName() + " Release ref-count=" + v));
         return true;
     }
 
     private boolean logReferenceCountHistory() {
         referenceCountHistory.forEach(Throwable::printStackTrace);
-        return false;
+        return true;
     }
 
     public long get() {
         return value.get();
     }
 
+    @NotNull
     public String toString() {
         return Long.toString(value.get());
     }

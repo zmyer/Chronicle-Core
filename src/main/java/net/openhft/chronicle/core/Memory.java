@@ -16,6 +16,8 @@
 
 package net.openhft.chronicle.core;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.lang.reflect.Field;
 
 /**
@@ -35,7 +37,7 @@ public interface Memory {
 
     void freeMemory(long address, long size);
 
-    long allocate(long capacity) throws IllegalArgumentException;
+    long allocate(long capacity) throws IllegalArgumentException, OutOfMemoryError;
 
     long nativeMemoryUsed();
 
@@ -169,11 +171,17 @@ public interface Memory {
 
     long addLong(Object object, long offset, long increment);
 
-    <E> E allocateInstance(Class<E> clazz) throws InstantiationException;
+    @NotNull
+    <E> E allocateInstance(Class<? extends E> clazz) throws InstantiationException;
 
     long getFieldOffset(Field field);
 
+    /**
+     * @deprecated Redundant to {@link #writeInt(Object, long, int)}.
+     */
+    @Deprecated
     void setInt(Object o, long offset, int value);
 
+    @NotNull
     <T> T getObject(Object o, long offset);
 }

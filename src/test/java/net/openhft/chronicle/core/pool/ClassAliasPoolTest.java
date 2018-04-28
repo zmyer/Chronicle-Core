@@ -24,8 +24,8 @@ import org.junit.Test;
 import static net.openhft.chronicle.core.pool.ClassAliasPool.CLASS_ALIASES;
 import static org.junit.Assert.assertEquals;
 
-/**
- * Created by peter on 21/06/15.
+/*
+ * Created by Peter Lawrey on 21/06/15.
  */
 public class ClassAliasPoolTest {
 
@@ -39,6 +39,15 @@ public class ClassAliasPoolTest {
     @After
     public void checkThreadDump() {
         threadDump.assertNoNewThreads();
+    }
+
+    @Test
+    public void forName() throws ClassNotFoundException {
+        CLASS_ALIASES.addAlias(ClassAliasPoolTest.class);
+        String simpleName = getClass().getSimpleName();
+        assertEquals(ClassAliasPoolTest.class, CLASS_ALIASES.forName(simpleName));
+        StringBuilder sb = new StringBuilder(simpleName);
+        assertEquals(ClassAliasPoolTest.class, CLASS_ALIASES.forName(sb));
     }
 
     @Test
@@ -66,6 +75,7 @@ public class ClassAliasPoolTest {
         },
         BAR;
 
-        void foo() {}
+        void foo() {
+        }
     }
 }

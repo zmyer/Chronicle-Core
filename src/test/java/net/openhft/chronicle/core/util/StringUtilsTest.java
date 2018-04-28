@@ -16,15 +16,23 @@
 
 package net.openhft.chronicle.core.util;
 
-import junit.framework.TestCase;
+import net.openhft.chronicle.core.Jvm;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 /**
  * @author Rob Austin.
  */
-public class StringUtilsTest extends TestCase {
+public class StringUtilsTest {
+    @Test
     public void testFirstLowerCase() throws Exception {
         assertEquals("", StringUtils.firstLowerCase(""));
         assertEquals("99", StringUtils.firstLowerCase("99"));
@@ -34,6 +42,7 @@ public class StringUtilsTest extends TestCase {
         assertEquals("aa", StringUtils.firstLowerCase("Aa"));
     }
 
+    @Test
     public void testToTitleCase() throws Exception {
         assertEquals("", StringUtils.toTitleCase(""));
         assertEquals("99", StringUtils.toTitleCase("99"));
@@ -56,6 +65,52 @@ public class StringUtilsTest extends TestCase {
         assertEquals("AAAA", StringUtils.toTitleCase("Aaaa"));
     }
 
+    @Ignore("picks up dead chars at end of string builder value array")
+    @Test
+    public void shouldGetCharsOfStringBuilder() throws Exception {
+        final StringBuilder sb = new StringBuilder("foobar_nine");
+        final char[] chars = StringUtils.extractChars(sb);
+        assertThat(new String(chars), equalTo(sb.toString()));
+    }
+
+    @Test
+    public void shouldGetCharsOfString() throws Exception {
+        final String s = "foobar_nine";
+        final char[] chars = StringUtils.extractChars(s);
+        assertThat(new String(chars), equalTo(s));
+    }
+
+    @Test
+    public void shouldExtractBytesFromString() throws Exception {
+        assumeTrue(Jvm.isJava9Plus());
+
+        assertThat("Is this test running on JDK9 with compact strings disabled?",
+                StringUtils.extractBytes("foobar"), is("foobar".getBytes(StandardCharsets.US_ASCII)));
+    }
+
+    @Ignore("picks up dead chars at end of string builder value array")
+    @Test
+    public void shouldExtractBytesFromStringBuilder() throws Exception {
+        assumeTrue(Jvm.isJava9Plus());
+
+        assertThat("Is this test running on JDK9 with compact strings disabled?",
+                StringUtils.extractBytes(new StringBuilder("foobar")), is("foobar".getBytes(StandardCharsets.US_ASCII)));
+    }
+
+    @Test
+    public void shouldCreateNewStringFromChars() throws Exception {
+        final char[] chars = {'A', 'B', 'C'};
+        assertThat(new String(chars), is(StringUtils.newString(chars)));
+    }
+
+    @Test
+    public void shouldCreateNewStringFromBytes() throws Exception {
+        assumeTrue(Jvm.isJava9Plus());
+
+        final byte[] bytes = {'A', 'B', 'C'};
+        assertThat(new String(bytes), is(StringUtils.newStringFromBytes(bytes)));
+    }
+
     @Test
     public void testParseDouble() throws IOException {
         for (double d : new double[]{Double.NaN, Double.NEGATIVE_INFINITY, Double
@@ -67,5 +122,34 @@ public class StringUtilsTest extends TestCase {
         assertEquals(0.0, StringUtils.parseDouble("-0"), 0);
         assertEquals(123.0, StringUtils.parseDouble("123"), 0);
         assertEquals(-1.0, StringUtils.parseDouble("-1"), 0);
+    }
+
+    @Test
+    public void testIsEqual() throws Exception {
+
+        // The same instances
+        StringBuilder emptySb = new StringBuilder().append("");
+        assertTrue(StringUtils.isEqual(emptySb, emptySb));
+
+        // Null cases
+        assertTrue(StringUtils.isEqual(null, null));
+        assertFalse(StringUtils.isEqual(emptySb, null));
+        assertFalse(StringUtils.isEqual(null, emptySb));
+
+        // Different lengths
+        assertFalse(StringUtils.isEqual(new StringBuilder().append(""), "a"));
+
+        // Same lengths & ASCII
+        assertFalse(StringUtils.isEqual(new StringBuilder().append("a"), "b"));
+        assertFalse(StringUtils.isEqual(new StringBuilder().append("test"), "Test"));
+        assertTrue(StringUtils.isEqual(new StringBuilder().append("TheSame"), "TheSame"));
+
+        // Same lengths & UTF-8
+        assertFalse(StringUtils.isEqual(new StringBuilder().append("Δ"), "Γ"));
+        assertFalse(StringUtils.isEqual(new StringBuilder().append("ΔΔΔΔΔ"), "ΔΔ€ΔΔ"));
+        assertTrue(StringUtils.isEqual(new StringBuilder().append("ΔΔΔΔΔ"), "ΔΔΔΔΔ"));
+
+        // Empty strings
+        assertTrue(StringUtils.isEqual(new StringBuilder(), ""));
     }
 }

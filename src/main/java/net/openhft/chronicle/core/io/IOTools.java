@@ -17,39 +17,39 @@
 package net.openhft.chronicle.core.io;
 
 import net.openhft.chronicle.core.Jvm;
-import sun.misc.Cleaner;
-import sun.nio.ch.DirectBuffer;
-import sun.reflect.Reflection;
+import net.openhft.chronicle.core.cleaner.CleanerServiceLocator;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
+import java.net.URL;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
+import java.nio.file.*;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-/**
- * Created by peter on 26/08/15.
+/*
+ * Created by Peter Lawrey on 26/08/15.
  * A collection of CONCURRENT utility tools
  */
 public enum IOTools {
     ;
 
-    public static boolean shallowDeleteDirWithFiles(String directory) throws IORuntimeException {
+    public static boolean shallowDeleteDirWithFiles(@NotNull String directory) throws IORuntimeException {
         return shallowDeleteDirWithFiles(new File(directory));
     }
 
-    public static boolean shallowDeleteDirWithFiles(File dir) throws IORuntimeException {
+    public static boolean shallowDeleteDirWithFiles(@NotNull File dir) throws IORuntimeException {
         return deleteDirWithFiles(dir, 1);
     }
 
-    public static boolean deleteDirWithFiles(String dir, int maxDepth) throws IORuntimeException {
+    public static boolean deleteDirWithFiles(@NotNull String dir, int maxDepth) throws IORuntimeException {
         return deleteDirWithFiles(new File(dir), maxDepth);
     }
 
-    public static boolean deleteDirWithFiles(File dir, int maxDepth) throws IORuntimeException {
-        File[] entries = dir.listFiles();
+    public static boolean deleteDirWithFiles(@NotNull File dir, int maxDepth) throws IORuntimeException {
+        @Nullable File[] entries = dir.listFiles();
         if (entries == null) return false;
         Stream.of(entries).filter(File::isDirectory).forEach(f -> {
             if (maxDepth < 1) {
@@ -70,6 +70,36 @@ public enum IOTools {
         return dir.delete();
     }
 
+    @Deprecated
+    public static URL urlFor(String name) throws FileNotFoundException {
+        // use the callers class loader not the default one if possible.
+        return urlFor(Thread.currentThread().getContextClassLoader(), name);
+    }
+
+    @NotNull
+    public static URL urlFor(Class clazz, String name) throws FileNotFoundException {
+        return urlFor(clazz.getClassLoader(), name);
+    }
+
+    @NotNull
+    public static URL urlFor(ClassLoader classLoader, String name) throws FileNotFoundException {
+        URL url = classLoader.getResource(name);
+        if (url == null && name.startsWith("/"))
+            url = classLoader.getResource(name.substring(1));
+        if (url == null)
+            url = classLoader.getResource(name + ".gz");
+        if (url == null)
+            throw new FileNotFoundException(name);
+        return url;
+    }
+
+    public static InputStream open(URL url) throws IOException {
+        InputStream in = url.openStream();
+        if (url.getFile().endsWith(".gz"))
+            in = new GZIPInputStream(in);
+        return in;
+    }
+
     /**
      * This method first looks for the file in the classpath. If this is not found it
      * appends the suffix .gz and looks again in the classpath to see if it is present.
@@ -81,42 +111,44 @@ public enum IOTools {
      * @return A byte[] containing the contents of the file
      * @throws IOException FileNotFoundException thrown if file is not found
      */
-    public static byte[] readFile(String name) throws IOException {
-        ClassLoader classLoader;
+    public static byte[] readFile(@NotNull String name) throws IOException {
+        URL url = urlFor(name);
+        InputStream is = open(url);
+
+        return readAsBytes(is);
+    }
+
+    public static byte[] readFile(Class clazz, @NotNull String name) throws IOException {
+        URL url = urlFor(clazz, name);
+        InputStream is = open(url);
+
+        return readAsBytes(is);
+    }
+
+    public static byte[] readAsBytes(InputStream is) throws IOException {
         try {
-            classLoader = Reflection.getCallerClass().getClassLoader();
-        } catch (Throwable e) {
-            classLoader = Thread.currentThread().getContextClassLoader();
+            @NotNull ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(512, is.available()));
+            @NotNull byte[] bytes = new byte[1024];
+            for (int len; (len = is.read(bytes)) > 0; )
+                out.write(bytes, 0, len);
+            return out.toByteArray();
+        } finally {
+            Closeable.closeQuietly(is);
         }
-        InputStream is = classLoader.getResourceAsStream(name);
-        if (is == null)
-            is = classLoader.getResourceAsStream(name + ".gz");
-        if (is == null)
-            try {
-                is = new FileInputStream(name);
-            } catch (FileNotFoundException e) {
-                try {
-                    is = new GZIPInputStream(new FileInputStream(name + ".gz"));
-                } catch (FileNotFoundException e1) {
-                    throw e;
-                }
-            }
-        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(512, is.available()));
-        byte[] bytes = new byte[1024];
-        for (int len; (len = is.read(bytes)) > 0; )
-            out.write(bytes, 0, len);
-        return out.toByteArray();
     }
 
-    public static void writeFile(String filename, byte[] bytes) throws IOException {
-        OutputStream out = new FileOutputStream(filename);
-        if (filename.endsWith(".gz"))
-            out = new GZIPOutputStream(out);
-        out.write(bytes);
-        out.close();
+    public static void writeFile(@NotNull String filename, @NotNull byte[] bytes) throws IOException {
+        try (@NotNull OutputStream out0 = new FileOutputStream(filename)) {
+            OutputStream out = out0;
+            if (filename.endsWith(".gz"))
+                out = new GZIPOutputStream(out);
+            out.write(bytes);
+            out.close();
+        }
     }
 
-    public static String tempName(String filename) {
+    @NotNull
+    public static String tempName(@NotNull String filename) {
         int ext = filename.lastIndexOf('.');
         if (ext > 0 && ext > filename.length() - 5) {
             return filename.substring(0, ext) + System.nanoTime() + filename.substring(ext);
@@ -125,10 +157,24 @@ public enum IOTools {
     }
 
     public static void clean(ByteBuffer bb) {
-        if (bb instanceof DirectBuffer) {
-            Cleaner cl = ((DirectBuffer) bb).cleaner();
-            if (cl != null)
-                cl.clean();
+        CleanerServiceLocator.cleanerService().clean(bb);
+    }
+
+    public static void createDirectories(Path dir) throws IOException {
+        if (dir == null || dir.getNameCount() == 0 || Files.isDirectory(dir))
+            return;
+        createDirectories(dir.getParent());
+        try {
+            Files.createDirectory(dir);
+        } catch (FileAlreadyExistsException e) {
+            if (Files.isSymbolicLink(dir))
+                throw new IOException("Symbolic link from " + dir + " to " + Files.readSymbolicLink(dir) + " is broken", e);
+            if (Files.isRegularFile(dir))
+                throw new IOException("Cannot create a directory with the same name as a file " + dir, e);
+        } catch (AccessDeniedException e) {
+            if (!dir.toFile().canWrite())
+                throw new IOException("Cannot write to " + dir, e);
         }
     }
+
 }

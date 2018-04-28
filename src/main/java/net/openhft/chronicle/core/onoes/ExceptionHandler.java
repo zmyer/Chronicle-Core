@@ -17,13 +17,21 @@
 
 package net.openhft.chronicle.core.onoes;
 
-/**
- * Created by Peter on 13/06/2016.
+/*
+ * Created by Peter Lawrey on 13/06/2016.
  */
 @FunctionalInterface
 public interface ExceptionHandler {
     default void on(Class clazz, Throwable thrown) {
-        on(clazz, "", thrown);
+        try {
+            on(clazz, "", thrown);
+        } catch (Throwable t) {
+            try {
+                Slf4jExceptionHandler.FATAL.on(clazz, "unable to handle the exception so logging to SLF, ", t);
+            } catch (Throwable t0) {
+                t0.printStackTrace();
+            }
+        }
     }
 
     default void on(Class clazz, String message) {
@@ -35,7 +43,7 @@ public interface ExceptionHandler {
      *
      * @param clazz   the error is associated with, e.g. the one in which it was caught
      * @param message any message associated with the error, or empty String.
-     * @param thrown  any Thorwable caught, or null if there was no exception.
+     * @param thrown  any Throwable caught, or null if there was no exception.
      */
     void on(Class clazz, String message, Throwable thrown);
 

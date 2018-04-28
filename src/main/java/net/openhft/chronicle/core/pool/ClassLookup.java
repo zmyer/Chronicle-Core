@@ -16,23 +16,29 @@
 
 package net.openhft.chronicle.core.pool;
 
-/**
- * Created by peter on 15/02/16.
+import org.jetbrains.annotations.NotNull;
+
+/*
+ * Created by Peter Lawrey on 15/02/16.
  */
 public interface ClassLookup {
 
+    @NotNull
     static ClassLookup create(ClassLoader loader) {
         return ClassAliasPool.CLASS_ALIASES.wrap(loader);
     }
 
+    @NotNull
     static ClassLookup create() {
         return ClassAliasPool.CLASS_ALIASES.wrap();
     }
 
+    @NotNull
     default ClassLookup wrap(ClassLoader loader) {
         return new ClassAliasPool(this, loader);
     }
 
+    @NotNull
     default ClassLookup wrap() {
         return new ClassAliasPool(this);
     }

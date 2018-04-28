@@ -16,35 +16,52 @@
 
 package net.openhft.chronicle.core.threads;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-/**
- * Created by peter on 04/11/16.
- */
 public enum ThreadLocalHelper {
     ;
 
-    public static <T> T getTL(ThreadLocal<WeakReference<T>> threadLocal, Supplier<T> supplier) {
-        WeakReference<T> ref = threadLocal.get();
-        T ret = null;
+    @NotNull
+    public static <T> T getTL(@NotNull ThreadLocal<WeakReference<T>> threadLocal, @NotNull Supplier<T> supplier) {
+        @Nullable WeakReference<T> ref = threadLocal.get();
+        @Nullable T ret = null;
         if (ref != null) ret = ref.get();
         if (ret == null) {
             ret = supplier.get();
-            ref = new WeakReference<T>(ret);
+            ref = new WeakReference<>(ret);
             threadLocal.set(ref);
         }
         return ret;
     }
 
-    public static <T, A> T getTL(ThreadLocal<WeakReference<T>> threadLocal, A a, Function<A, T> function) {
-        WeakReference<T> ref = threadLocal.get();
+    @NotNull
+    public static <T, A> T getTL(@NotNull ThreadLocal<WeakReference<T>> threadLocal, A a, @NotNull Function<A, T> function) {
+        return getTL(threadLocal, a, function, null, null);
+    }
+
+    @NotNull
+    public static <T, A> T getTL(@NotNull final ThreadLocal<WeakReference<T>> threadLocal, final A a,
+                                 @NotNull final Function<A, T> function,
+                                 @Nullable final ReferenceQueue<T> referenceQueue,
+                                 @Nullable final Consumer<WeakReference<T>> refConsumer) {
+        @Nullable WeakReference<T> ref = threadLocal.get();
         T ret = null;
         if (ref != null) ret = ref.get();
         if (ret == null) {
             ret = function.apply(a);
-            ref = new WeakReference<T>(ret);
+            if (referenceQueue != null && refConsumer != null) {
+                ref = new WeakReference<>(ret, referenceQueue);
+                refConsumer.accept(ref);
+            } else {
+                ref = new WeakReference<>(ret);
+            }
             threadLocal.set(ref);
         }
         return ret;

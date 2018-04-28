@@ -17,24 +17,30 @@
 
 package net.openhft.chronicle.core.onoes;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Map;
 
-/**
- * Created by Peter on 13/06/2016.
+/*
+ * Created by Peter Lawrey on 13/06/2016.
  */
 public class RecordingExceptionHandler implements ExceptionHandler {
     private final LogLevel level;
     private final Map<ExceptionKey, Integer> exceptionKeyCountMap;
+    private final boolean exceptionsOnly;
 
-    public RecordingExceptionHandler(LogLevel level, Map<ExceptionKey, Integer> exceptionKeyCountMap) {
+    public RecordingExceptionHandler(LogLevel level, Map<ExceptionKey, Integer> exceptionKeyCountMap, boolean exceptionsOnly) {
         this.level = level;
         this.exceptionKeyCountMap = exceptionKeyCountMap;
+        this.exceptionsOnly = exceptionsOnly;
     }
 
     @Override
     public void on(Class clazz, String message, Throwable thrown) {
+        if (exceptionsOnly && thrown == null)
+            return;
         synchronized (exceptionKeyCountMap) {
-            ExceptionKey key = new ExceptionKey(level, clazz, message, thrown);
+            @NotNull ExceptionKey key = new ExceptionKey(level, clazz, message, thrown);
             exceptionKeyCountMap.merge(key, 1, (p, v) -> p == null ? v : p + v);
         }
     }

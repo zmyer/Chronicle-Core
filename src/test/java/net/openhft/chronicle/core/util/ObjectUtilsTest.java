@@ -16,6 +16,7 @@
 
 package net.openhft.chronicle.core.util;
 
+import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
 import java.math.BigDecimal;
@@ -26,13 +27,13 @@ import java.util.HashMap;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- * Created by peter on 11/12/16.
+/*
+ * Created by Peter Lawrey on 11/12/16.
  */
 public class ObjectUtilsTest {
     @Test
     public void testImmutable() {
-        for (Class c : new Class[]{
+        for (@NotNull Class c : new Class[]{
                 String.class,
                 Integer.class,
                 Date.class,
@@ -41,12 +42,21 @@ public class ObjectUtilsTest {
         }) {
             assertEquals(ObjectUtils.Immutability.MAYBE, ObjectUtils.isImmutable(c));
         }
-        for (Class c : new Class[]{
+        for (@NotNull Class c : new Class[]{
                 StringBuilder.class,
                 ArrayList.class,
                 HashMap.class,
         }) {
             assertEquals(ObjectUtils.Immutability.NO, ObjectUtils.isImmutable(c));
         }
+    }
+
+    @Test
+    public void testConvert() {
+        assertEquals('1', (char) ObjectUtils.convertTo(char.class, 1));
+        assertEquals('1', (char) ObjectUtils.convertTo(char.class, 1L));
+        assertEquals(1, (int) ObjectUtils.convertTo(int.class, '1'));
+        assertEquals(1L, (long) ObjectUtils.convertTo(long.class, '1'));
+        assertEquals(1.0, ObjectUtils.convertTo(double.class, '1'), 0.0);
     }
 }

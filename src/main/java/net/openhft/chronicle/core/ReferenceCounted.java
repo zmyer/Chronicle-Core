@@ -17,6 +17,8 @@
 package net.openhft.chronicle.core;
 
 import net.openhft.chronicle.core.io.Closeable;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.lang.ref.WeakReference;
@@ -26,11 +28,11 @@ import java.util.List;
  * A resource which is reference counted and freed when the refCount drop to 0.
  */
 public interface ReferenceCounted {
-    static void releaseAll(List<WeakReference<ReferenceCounted>> refCounts) {
-        for (WeakReference<? extends ReferenceCounted> refCountRef : refCounts) {
+    static void releaseAll(@NotNull List<WeakReference<ReferenceCounted>> refCounts) {
+        for (@Nullable WeakReference<? extends ReferenceCounted> refCountRef : refCounts) {
             if (refCountRef == null)
                 continue;
-            ReferenceCounted refCounted = refCountRef.get();
+            @Nullable ReferenceCounted refCounted = refCountRef.get();
             if (refCounted != null) {
                 try {
                     refCounted.release();
@@ -48,7 +50,7 @@ public interface ReferenceCounted {
      */
     static void release(Object o) {
         if (o instanceof ReferenceCounted) {
-            ReferenceCounted rc = (ReferenceCounted) o;
+            @NotNull ReferenceCounted rc = (ReferenceCounted) o;
             try {
                 rc.release();
             } catch (IllegalStateException e) {
@@ -80,14 +82,10 @@ public interface ReferenceCounted {
                 return true;
             }
 
-        } catch (IllegalStateException e) {
-            LoggerFactory.getLogger(Closeable.class).error("You can not reserve on a closed " +
-                    "resource who's reference count is zero",e);
-            return false;
+        } catch (IllegalStateException ignored) {
+            // expected
         }
 
-        LoggerFactory.getLogger(Closeable.class).error("You can not " +
-                "tryReserve() on a closed resource who's reference count is zero");
         return false;
     }
 }

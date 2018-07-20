@@ -41,8 +41,6 @@ public class JLBHDeterministicFixtures {
             "50:             8.07         8.07         6.11        17.63\n" +
             "90:            11.67        11.67         9.71        11.86\n" +
             "99:            12.48        12.48        10.52        11.05\n" +
-            "99.9:          12.56        12.56        10.60        10.98\n" +
-            "99.99:         12.56        12.56        10.60        10.97\n" +
             "worst:         12.56        12.56        10.60        10.97\n" +
             "-------------------------------------------------------------------------------------------------------------------\n" +
             "-------------------------------- SUMMARY (A)------------------------------------------------------------\n" +
@@ -50,8 +48,6 @@ public class JLBHDeterministicFixtures {
             "50:             7.07         7.07         5.11        20.38\n" +
             "90:            10.67        10.67         8.71        13.05\n" +
             "99:            11.48        11.48         9.52        12.07\n" +
-            "99.9:          11.56        11.56         9.60        11.98\n" +
-            "99.99:         11.56        11.56         9.60        11.98\n" +
             "worst:         11.56        11.56         9.60        11.98\n" +
             "-------------------------------------------------------------------------------------------------------------------\n" +
             "-------------------------------- SUMMARY (B)------------------------------------------------------------\n" +
@@ -59,8 +55,6 @@ public class JLBHDeterministicFixtures {
             "50:             0.10         0.10         0.10         0.00\n" +
             "90:             0.10         0.10         0.10         0.00\n" +
             "99:             0.10         0.10         0.10         0.00\n" +
-            "99.9:           0.10         0.10         0.10         0.00\n" +
-            "99.99:          0.10         0.10         0.10         0.00\n" +
             "worst:          0.10         0.10         0.10         0.00\n" +
             "-------------------------------------------------------------------------------------------------------------------\n";
 
@@ -89,7 +83,7 @@ public class JLBHDeterministicFixtures {
 
     static class PredictableJLBHTask implements JLBHTask {
 
-        private int nanoTime = 1_000_000;
+        protected int nanoTime = 1_000_000;
         private int latency;
         private JLBH lth;
         private NanoSampler additionalSamplerA;
@@ -100,7 +94,8 @@ public class JLBHDeterministicFixtures {
             latency = 1000 + (++this.nanoTime % 11567);
             lth.sample(latency);
             additionalSamplerA.sampleNanos(latency - 1000);
-            additionalSamplerB.sampleNanos(100);
+            if (sampleB())
+                additionalSamplerB.sampleNanos(100);
         }
 
         @Override
@@ -112,6 +107,17 @@ public class JLBHDeterministicFixtures {
 
         @Override
         public void complete() {
+        }
+
+        protected boolean sampleB() {
+            return true;
+        }
+    }
+
+    static class PredictableJLBHTaskDifferentShape extends PredictableJLBHTask {
+        @Override
+        protected boolean sampleB() {
+            return nanoTime % 10 == 0;
         }
     }
 

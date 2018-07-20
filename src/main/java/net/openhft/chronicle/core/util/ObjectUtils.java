@@ -119,9 +119,31 @@ public enum ObjectUtils {
     }
 
     public static boolean isTrue(CharSequence s) {
-        return StringUtils.equalsCaseIgnore(s, "true") ||
-                StringUtils.equalsCaseIgnore(s, "y") ||
-                StringUtils.equalsCaseIgnore(s, "yes");
+        switch (s.length()) {
+            case 1:
+                char ch = Character.toLowerCase(s.charAt(0));
+                return ch == 't' || ch == 'y';
+            case 3:
+                return StringUtils.equalsCaseIgnore(s, "yes");
+            case 4:
+                return StringUtils.equalsCaseIgnore(s, "true");
+            default:
+                return false;
+        }
+    }
+
+    public static boolean isFalse(CharSequence s) {
+        switch (s.length()) {
+            case 1:
+                char ch = Character.toLowerCase(s.charAt(0));
+                return ch == 'f' || ch == 'n';
+            case 2:
+                return StringUtils.equalsCaseIgnore(s, "no");
+            case 5:
+                return StringUtils.equalsCaseIgnore(s, "false");
+            default:
+                return false;
+        }
     }
 
     /**
@@ -417,13 +439,27 @@ public enum ObjectUtils {
         YES, NO, MAYBE
     }
 
+    private static Boolean toBoolean(String s) {
+        if (s == null)
+            return null;
+        s = s.trim();
+        if (isTrue(s))
+            return Boolean.TRUE;
+        if (isFalse(s))
+            return Boolean.FALSE;
+        if (s.isEmpty())
+            return null;
+        Jvm.debug().on(ObjectUtils.class, "Treating '" + s + "' as false");
+        return Boolean.FALSE;
+    }
+
     private static class ConversionFunction implements Function<Class<?>, ThrowingFunction<String, Object, Exception>> {
         @Override
         public ThrowingFunction<String, Object, Exception> apply(@NotNull Class<?> c) {
             if (c == Class.class)
                 return CLASS_ALIASES::forName;
             if (c == Boolean.class)
-                return ObjectUtils::isTrue;
+                return ObjectUtils::toBoolean;
             try {
                 Method valueOf = c.getDeclaredMethod("valueOf", String.class);
                 valueOf.setAccessible(true);
@@ -455,6 +491,42 @@ public enum ObjectUtils {
             } catch (Exception e) {
                 throw asCCE(e);
             }
+        }
+    }
+
+    public static Class<?>[] getAllInterfaces(Object o) {
+        Set<Class<?>> results = new HashSet<>();
+        getAllInterfaces(o, results::add);
+        return results.toArray(new Class<?>[results.size()]);
+    }
+
+    public static void getAllInterfaces(Object o, Function<Class<?>, Boolean> accumulator) {
+        if (null == o)
+            return;
+
+        if(null == accumulator)
+            throw new IllegalArgumentException("Accumulator cannot be null");
+
+        if(o instanceof Class){
+            Class clazz = (Class) o;
+
+            if(clazz.isInterface()) {
+                if(accumulator.apply((Class) o))
+                {
+                    for (Class aClass : clazz.getInterfaces()) {
+                        getAllInterfaces(aClass, accumulator);
+                    }
+                }
+            } else {
+                if(null != clazz.getSuperclass())
+                    getAllInterfaces(clazz.getSuperclass(), accumulator);
+
+                for (Class aClass : clazz.getInterfaces()) {
+                    getAllInterfaces(aClass, accumulator);
+                }
+            }
+        } else {
+            getAllInterfaces(o.getClass(), accumulator);
         }
     }
 }

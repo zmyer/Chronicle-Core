@@ -1,7 +1,6 @@
 package net.openhft.chronicle.core.jlbh;
 
 import org.jetbrains.annotations.NotNull;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -20,7 +19,7 @@ import static org.junit.Assert.*;
 public class JLBHTest {
 
     @Test
-    public void shouldWriteResultToTheOutputProvided() throws Exception {
+    public void shouldWriteResultToTheOutputProvided() {
         // given
         final OutputStream outputStream = new ByteArrayOutputStream();
         final JLBH jlbh = new JLBH(options(), new PrintStream(outputStream), resultConsumer());
@@ -37,11 +36,11 @@ public class JLBHTest {
     }
 
     @Test
-    /**
+    /*
      * To understand the data, please go to JLBHDeterministicFixtures
      * and JLBHDeterministicFixtures::expectedOutput in particular
      */
-    public void shouldProvideResultData() throws Exception {
+    public void shouldProvideResultData() {
         // given
         final JLBHResultConsumer resultConsumer = resultConsumer();
         final JLBH jlbh = new JLBH(options(), printStream(), resultConsumer);
@@ -54,8 +53,6 @@ public class JLBHTest {
         assertThat(lastRunSummary.get50thPercentile().toNanos(), equalTo(6_106L));
         assertThat(lastRunSummary.get90thPercentile().toNanos(), equalTo(9_708L));
         assertThat(lastRunSummary.get99thPercentile().toNanos(), equalTo(10_516L));
-        assertThat(lastRunSummary.get999thPercentile().toNanos(), equalTo(10_596L));
-        assertThat(lastRunSummary.get9999thPercentile().toNanos(), equalTo(10_604L));
         assertThat(lastRunSummary.getWorst().toNanos(), equalTo(10_604L));
         assertThat(lastRunSummary.percentiles().get(PERCENTILE_50TH), equalTo(lastRunSummary.get50thPercentile()));
         assertThat(lastRunSummary.percentiles().get(PERCENTILE_90TH), equalTo(lastRunSummary.get90thPercentile()));
@@ -63,8 +60,6 @@ public class JLBHTest {
         assertThat(lastRunSummary.percentiles().get(PERCENTILE_99_9TH), equalTo(lastRunSummary.get999thPercentile()));
         assertThat(lastRunSummary.percentiles().get(PERCENTILE_99_99TH), equalTo(lastRunSummary.get9999thPercentile()));
         assertNull(lastRunSummary.percentiles().get(PERCENTILE_99_999TH));
-        assertNull(lastRunSummary.percentiles().get(PERCENTILE_99_9999TH));
-        assertNull(lastRunSummary.percentiles().get(PERCENTILE_99_9999TH));
         assertThat(lastRunSummary.percentiles().get(WORST), equalTo(lastRunSummary.getWorst()));
 
         final List<JLBHResult.RunResult> summaryOfEachRun = resultConsumer.get().endToEnd().eachRunSummary();
@@ -81,8 +76,7 @@ public class JLBHTest {
         assertThat(probeALastRunSummary.get50thPercentile().toNanos(), equalTo(5_106L));
         assertThat(probeALastRunSummary.get90thPercentile().toNanos(), equalTo(8_708L));
         assertThat(probeALastRunSummary.get99thPercentile().toNanos(), equalTo(9_516L));
-        assertThat(probeALastRunSummary.get999thPercentile().toNanos(), equalTo(9_596L));
-        assertThat(probeALastRunSummary.get9999thPercentile().toNanos(), equalTo(9_604L));
+//        assertThat(probeALastRunSummary.get9999thPercentile().toNanos(), equalTo(9_604L));
         assertThat(probeALastRunSummary.getWorst().toNanos(), equalTo(9_604L));
         assertThat(probeALastRunSummary.percentiles().get(PERCENTILE_50TH), equalTo(probeALastRunSummary.get50thPercentile()));
         assertThat(probeALastRunSummary.percentiles().get(PERCENTILE_90TH), equalTo(probeALastRunSummary.get90thPercentile()));
@@ -90,8 +84,6 @@ public class JLBHTest {
         assertThat(probeALastRunSummary.percentiles().get(PERCENTILE_99_9TH), equalTo(probeALastRunSummary.get999thPercentile()));
         assertThat(probeALastRunSummary.percentiles().get(PERCENTILE_99_99TH), equalTo(probeALastRunSummary.get9999thPercentile()));
         assertNull(probeALastRunSummary.percentiles().get(PERCENTILE_99_999TH));
-        assertNull(probeALastRunSummary.percentiles().get(PERCENTILE_99_9999TH));
-        assertNull(probeALastRunSummary.percentiles().get(PERCENTILE_99_9999TH));
         assertThat(probeALastRunSummary.percentiles().get(WORST), equalTo(probeALastRunSummary.getWorst()));
 
         final List<JLBHResult.RunResult> summaryOfProbeAEachRun = resultConsumer.get().probe("A").get().eachRunSummary();
@@ -102,31 +94,21 @@ public class JLBHTest {
     }
 
     @Test
-    @Ignore("Test passes but takes ~10s to run, so ignored not to slow down the build")
-    public void shouldProvideHigherPercentilesIfEnoughSamples() throws Exception {
+    public void shouldProvideResultDataEvenIfProbesDoNotProvideSameShapedData() {
         // given
-        final JLBHOptions optionsA = options().runs(1).jlbhTask(new FixedLatencyJLBHTask(777)).iterations(1_000_000);
-        final JLBHOptions optionsB = options().runs(1).jlbhTask(new FixedLatencyJLBHTask(777)).iterations(10_000_000);
-        final JLBHResultConsumer resultConsumerA = resultConsumer();
-        final JLBHResultConsumer resultConsumerB = resultConsumer();
-        new JLBH(optionsA, printStream(), resultConsumerA).start();
-        new JLBH(optionsB, printStream(), resultConsumerB).start();
+        final JLBHResultConsumer resultConsumer = resultConsumer();
+        JLBHOptions jlbhOptions = options().jlbhTask(new PredictableJLBHTaskDifferentShape()).iterations(ITERATIONS * 2);
+        final JLBH jlbh = new JLBH(jlbhOptions, printStream(), resultConsumer);
 
         // when
-        final JLBHResult.RunResult summaryA = resultConsumerA.get().endToEnd().summaryOfLastRun();
-        final JLBHResult.RunResult summaryB = resultConsumerB.get().endToEnd().summaryOfLastRun();
+        jlbh.start();
 
         // then
-        assertNotNull(summaryA.percentiles().get(PERCENTILE_99_99TH));
-        assertNotNull(summaryA.percentiles().get(PERCENTILE_99_999TH));
-        assertNull(summaryA.percentiles().get(PERCENTILE_99_9999TH));
+        final JLBHResult.RunResult probeALastRunSummary = resultConsumer.get().probe("A").get().summaryOfLastRun();
+        assertThat(probeALastRunSummary.percentiles().size(), equalTo(5));
 
-        assertNotNull(summaryA.percentiles().get(PERCENTILE_99_99TH));
-        assertNotNull(summaryB.percentiles().get(PERCENTILE_99_999TH));
-        assertNotNull(summaryB.percentiles().get(PERCENTILE_99_9999TH));
-
-        assertThat(percentilesUniqueLatenciesIn(summaryA).size(), equalTo(1));
-        assertThat(percentilesUniqueLatenciesIn(summaryB).size(), equalTo(1));
+        final JLBHResult.RunResult probeBLastRunSummary = resultConsumer.get().probe("B").get().summaryOfLastRun();
+        assertThat(probeBLastRunSummary.percentiles().size(), equalTo(4));
     }
 
     private Set<Duration> percentilesUniqueLatenciesIn(JLBHResult.RunResult summaryA) {

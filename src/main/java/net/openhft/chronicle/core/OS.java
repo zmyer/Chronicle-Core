@@ -19,8 +19,6 @@ package net.openhft.chronicle.core;
 import net.openhft.chronicle.core.util.ThrowingFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sun.nio.ch.FileChannelImpl;
 
 import java.io.*;
@@ -59,7 +57,6 @@ public enum OS {
     });
     private static final String HOST_NAME = getHostName0();
     private static final String USER_NAME = System.getProperty("user.name");
-    private static final Logger LOG = LoggerFactory.getLogger(OS.class);
     private static final int MAP_RO = 0;
     private static final int MAP_RW = 1;
     private static final int MAP_PV = 2;
@@ -72,10 +69,12 @@ public enum OS {
     private static final boolean IS_MAC = OS.contains("mac");
     private static final boolean IS_WIN = OS.startsWith("win");
     private static final boolean IS_WIN10 = OS.equals("windows 10");
-    private static final int MAP_ALIGNMENT = isWindows() ? 64 << 10 : pageSize();
     private static final AtomicLong memoryMapped = new AtomicLong();
+    private static final int PAGE_SIZE = MEMORY.pageSize();
+    private static final int MAP_ALIGNMENT = isWindows() ? 64 << 10 : PAGE_SIZE;
     private static MethodHandle UNMAPP0_MH;
     private static MethodHandle READ0_MH;
+    private static MethodHandle WRITE0_MH;
 
     static {
         try {
@@ -86,6 +85,14 @@ public enum OS {
             Method read0 = Class.forName("sun.nio.ch.FileDispatcherImpl").getDeclaredMethod("read0", FileDescriptor.class, long.class, int.class);
             read0.setAccessible(true);
             READ0_MH = MethodHandles.lookup().unreflect(read0);
+
+            if (IS_WIN) {
+                WRITE0_MH = null;
+            } else {
+                Method write0 = Class.forName("sun.nio.ch.FileDispatcherImpl").getDeclaredMethod("write0", FileDescriptor.class, long.class, int.class);
+                write0.setAccessible(true);
+                WRITE0_MH = MethodHandles.lookup().unreflect(write0);
+            }
 
         } catch (NoSuchMethodException | IllegalAccessException | ClassNotFoundException e) {
             throw new AssertionError(e);
@@ -193,7 +200,7 @@ public enum OS {
      * @see #pageAlign(long)
      */
     public static int pageSize() {
-        return memory().pageSize();
+        return PAGE_SIZE;
     }
 
     /**
@@ -354,7 +361,7 @@ public enum OS {
     }
 
     static long map0(@NotNull FileChannel fileChannel, int imode, long start, long size) throws IOException {
-        MethodHandle map0 = MAP0_MH.computeValue(fileChannel.getClass());
+        MethodHandle map0 = MAP0_MH.get(fileChannel.getClass());
         final long address = invokeFileChannelMap0(map0, fileChannel, imode, start, size, oome1 -> {
             System.gc();
 
@@ -457,6 +464,16 @@ public enum OS {
     public static int read0(FileDescriptor fd, long address, int len) throws IOException {
         try {
             return (int) READ0_MH.invokeExact(fd, address, len);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Throwable e) {
+            throw new IOException(e);
+        }
+    }
+
+    public static int write0(FileDescriptor fd, long address, int len) throws IOException {
+        try {
+            return (int) WRITE0_MH.invokeExact(fd, address, len);
         } catch (IOException ioe) {
             throw ioe;
         } catch (Throwable e) {

@@ -58,12 +58,15 @@ public enum Jvm {
     @NotNull
     private static final ThreadLocalisedExceptionHandler WARN = new ThreadLocalisedExceptionHandler(Slf4jExceptionHandler.WARN);
     @NotNull
+    private static final ThreadLocalisedExceptionHandler PERF = new ThreadLocalisedExceptionHandler(Slf4jExceptionHandler.PERF);
+    @NotNull
     private static final ThreadLocalisedExceptionHandler DEBUG = new ThreadLocalisedExceptionHandler(Slf4jExceptionHandler.DEBUG);
 
     private static final int JVM_JAVA_MAJOR_VERSION;
     private static final boolean IS_JAVA_9_PLUS;
     private static final long MAX_DIRECT_MEMORY;
     private static final ChainedSignalHandler signalHandlerGlobal;
+    private static final boolean SAVEPOINT_ENABLED = Boolean.getBoolean("jvm.safepoint.enabled");
 
     static {
         JVM_JAVA_MAJOR_VERSION = getMajorVersion0();
@@ -72,7 +75,14 @@ public enum Jvm {
 
         try {
             bitsClass = Class.forName("java.nio.Bits");
-            reservedMemory = bitsClass.getDeclaredField("reservedMemory");
+            Field f;
+            try {
+                f = bitsClass.getDeclaredField("reservedMemory");
+            }
+            catch (NoSuchFieldException e) {
+                f = bitsClass.getDeclaredField("RESERVED_MEMORY");
+            }
+            reservedMemory = f;
             reservedMemory.setAccessible(true);
             if (reservedMemory.getType() == AtomicLong.class) {
                 reservedMemoryAtomicLong = (AtomicLong) reservedMemory.get(null);
@@ -178,6 +188,8 @@ public enum Jvm {
     }
 
     static int trimFirst(@NotNull StackTraceElement[] stes) {
+        if (stes.length > 2 && stes[1].getMethodName().endsWith("afepoint"))
+            return 2;
         int first = 0;
         for (; first < stes.length; first++)
             if (!isInternal(stes[first].getClassName()))
@@ -335,6 +347,7 @@ public enum Jvm {
         FATAL.defaultHandler(Slf4jExceptionHandler.FATAL).resetThreadLocalHandler();
         WARN.defaultHandler(Slf4jExceptionHandler.WARN).resetThreadLocalHandler();
         DEBUG.defaultHandler(Slf4jExceptionHandler.DEBUG).resetThreadLocalHandler();
+        PERF.defaultHandler(Slf4jExceptionHandler.DEBUG).resetThreadLocalHandler();
     }
 
     public static void disableDebugHandler() {
@@ -373,7 +386,15 @@ public enum Jvm {
     }
 
     public static boolean hasException(@NotNull Map<ExceptionKey, Integer> exceptions) {
-        return exceptions.keySet().stream().anyMatch(k -> k.throwable != null && k.level != LogLevel.DEBUG);
+
+        Iterator<ExceptionKey> iterator = exceptions.keySet().iterator();
+        while (iterator.hasNext()) {
+            ExceptionKey k = iterator.next();
+            if (k.throwable != null && k.level != LogLevel.DEBUG)
+                return true;
+        }
+
+        return false;
     }
 
     @Deprecated
@@ -390,6 +411,16 @@ public enum Jvm {
         FATAL.defaultHandler(fatal);
         WARN.defaultHandler(warn);
         DEBUG.defaultHandler(debug);
+
+    }
+
+
+    public static void setExceptionHandlers(@Nullable ExceptionHandler fatal,
+                                            @Nullable ExceptionHandler warn,
+                                            @Nullable ExceptionHandler debug,
+                                            @Nullable ExceptionHandler perf) {
+        setExceptionHandlers(fatal, warn, debug);
+        PERF.defaultHandler(perf);
     }
 
     public static void setThreadLocalExceptionHandlers(@Nullable ExceptionHandler fatal,
@@ -401,6 +432,15 @@ public enum Jvm {
         DEBUG.threadLocalHandler(debug);
     }
 
+    public static void setThreadLocalExceptionHandlers(@Nullable ExceptionHandler fatal,
+                                                       @Nullable ExceptionHandler warn,
+                                                       @Nullable ExceptionHandler debug,
+                                                       @Nullable ExceptionHandler perf) {
+
+        setThreadLocalExceptionHandlers(fatal, warn, debug);
+        PERF.threadLocalHandler(debug);
+    }
+
     @NotNull
     public static ExceptionHandler fatal() {
         return FATAL;
@@ -410,6 +450,12 @@ public enum Jvm {
     public static ExceptionHandler warn() {
         return WARN;
     }
+
+    @NotNull
+    public static ExceptionHandler perf() {
+        return PERF;
+    }
+
 
     @NotNull
     public static ExceptionHandler debug() {
@@ -496,6 +542,30 @@ public enum Jvm {
             // System.exit()
             Jvm.warn().on(signalHandler.getClass(), "Unable add a signal handler", e);
         }
+    }
+
+    public static void safepoint() {
+        // no safepoint
+        // System.identityHashCode("");
+//        byte.class.getModifiers();
+
+//        "".intern(); 50 ns
+        if (IS_JAVA_9_PLUS)
+            Thread.holdsLock(""); // 100 ns on Java 11
+        else
+            Compiler.enable(); // 5 ns on Java 8
+    }
+
+    public static void optionalSafepoint() {
+        if (SAVEPOINT_ENABLED)
+            if (IS_JAVA_9_PLUS)
+                Thread.holdsLock("");
+            else
+                Compiler.enable();
+    }
+
+    public static boolean areOptionalSafepointsEnabled() {
+        return SAVEPOINT_ENABLED;
     }
 
     enum DirectMemoryInspector {

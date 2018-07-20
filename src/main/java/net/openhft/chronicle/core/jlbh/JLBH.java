@@ -216,7 +216,9 @@ public class JLBH implements NanoSampler {
                 List<double[]> ds = additionalPercentileRuns.computeIfAbsent(key,
                         i -> new ArrayList<>());
                 ds.add(value.getPercentiles());
-                printStream.printf("%-48s", String.format("%s (%,d) ", key, value.totalCount()));
+//                if (value.totalCount() != jlbhOptions.iterations)
+//                    warning = " WARNING " + value.totalCount() + "!=" + jlbhOptions.iterations;
+                printStream.printf("%-48s", String.format("%s (%,d)", key, value.totalCount()));
                 printStream.println(value.toMicrosFormat());
             });
         }
@@ -234,7 +236,6 @@ public class JLBH implements NanoSampler {
 
     /**
      * Call this instead of start if you want to install JLBH as a handler on your event loop thread
-     *
      */
     public JLBHEventHandler eventLoopHandler() {
         if (!jlbhOptions.accountForCoordinatedOmission)
@@ -261,7 +262,8 @@ public class JLBH implements NanoSampler {
         @NotNull List<Double> consistencies = new ArrayList<>();
         double maxValue = Double.MIN_VALUE;
         double minValue = Double.MAX_VALUE;
-        int length = percentileRuns.get(0).length;
+        double[] percentFor = Histogram.percentilesFor(jlbhOptions.iterations);
+        int length = percentFor.length;
         for (int i = 0; i < length; i++) {
             boolean skipFirst = length > 3;
             if (jlbhOptions.skipFirstRun == JLBHOptions.SKIP_FIRST_RUN.SKIP) {
@@ -274,11 +276,14 @@ public class JLBH implements NanoSampler {
                     skipFirst = false;
                     continue;
                 }
-                double v = percentileRun[i];
-                if (v > maxValue)
-                    maxValue = v;
-                if (v < minValue)
-                    minValue = v;
+                // not all measures may have got the same number of samples
+                if (i < percentileRun.length) {
+                    double v = percentileRun[i];
+                    if (v > maxValue)
+                        maxValue = v;
+                    if (v < minValue)
+                        minValue = v;
+                }
             }
             consistencies.add(100 * (maxValue - minValue) / (maxValue + minValue / 2));
 
@@ -289,7 +294,10 @@ public class JLBH implements NanoSampler {
         @NotNull List<Double> summary = new ArrayList<>();
         for (int i = 0; i < length; i++) {
             for (double[] percentileRun : percentileRuns) {
-                summary.add(percentileRun[i] / 1e3);
+                if (i < percentileRun.length)
+                    summary.add(percentileRun[i] / 1e3);
+                else
+                    summary.add(Double.POSITIVE_INFINITY);
             }
             summary.add(consistencies.get(i));
         }
@@ -299,16 +307,18 @@ public class JLBH implements NanoSampler {
         printStream.println(sb.toString());
 
         sb = new StringBuilder();
-        addPrToPrint(sb, "50:     ", jlbhOptions.runs);
-        addPrToPrint(sb, "90:     ", jlbhOptions.runs);
-        addPrToPrint(sb, "99:     ", jlbhOptions.runs);
-        addPrToPrint(sb, "99.9:   ", jlbhOptions.runs);
-        addPrToPrint(sb, "99.99:  ", jlbhOptions.runs);
-        if (jlbhOptions.iterations > 1_000_000)
-            addPrToPrint(sb, "99.999: ", jlbhOptions.runs);
-        if (jlbhOptions.iterations > 10_000_000)
-            addPrToPrint(sb, "99.9999:", jlbhOptions.runs);
-        addPrToPrint(sb, "worst:  ", jlbhOptions.runs);
+        for (double p : percentFor) {
+            String s;
+            if (p == 1) {
+                s = "worst";
+            } else {
+                double p2 = p * 100;
+                s = (long) p2 == p2 ? Long.toString((long) p2) : Double.toString(p2);
+            }
+            s += ":     ";
+            s = s.substring(0, 8);
+            addPrToPrint(sb, s, jlbhOptions.runs);
+        }
 
         printStream.printf(sb.toString(), summary.toArray(NO_DOUBLES));
         printStream.println("-------------------------------------------------------------------------------------------------------------------");
